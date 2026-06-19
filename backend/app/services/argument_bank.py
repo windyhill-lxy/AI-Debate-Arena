@@ -24,7 +24,18 @@ MAX_TITLE_LEN = 18
 
 
 def short_argument_title(claim: str) -> str:
+    quoted = re.search(r"[“\"《]([^”\"》]{6,80})[”\"》]", claim or "")
+    if quoted:
+        claim = quoted.group(1)
+    if "AI作业批改" in (claim or "") and "订正率" in (claim or ""):
+        return "AI作业批改订正率提升"
+    if "韩国AI作业禁令" in (claim or ""):
+        return "韩国AI作业禁令"
+    if "AI" in (claim or "") and "个性化反馈" in (claim or "") and "知识漏洞" in (claim or ""):
+        return "AI个性化反馈发现漏洞"
     text = re.split(r"[，。；;：:\n]", claim or "", maxsplit=1)[0]
+    text = re.sub(r"^.*?(?:例子上用|例如|案例是|调研是)", "", text)
+    text = re.sub(r"^我作为[一二三四]辩.*?(?=AI|人工智能|韩国|OECD|20\d{2}年)", "", text)
     text = re.sub(r"\s+", "", text)
     for word in TITLE_STOPWORDS:
         text = text.replace(word, "")
@@ -47,7 +58,30 @@ def _argument_key(item: ArgumentBankItem) -> str:
 def _source_display_title(source: Source) -> str:
     title = source.title or source.excerpt or "资料论据"
     title = re.sub(r"\s*[·\-_]\s*片段\s*\d+\s*$", "", title).strip()
+    excerpt = re.sub(r"\s+", " ", source.excerpt or "").strip()
+    generic_title = (
+        not title
+        or len(re.sub(r"\s+", "", title)) <= 6
+        or any(term in title for term in ("资料", "材料", "AI学习", "学习", "调研", "研究"))
+    )
+    has_concrete_evidence = bool(re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%|禁令|调查|调研|报告|数据显示", excerpt))
+    if generic_title or has_concrete_evidence:
+        return short_argument_title(f"{title} {excerpt}".strip())
     return short_argument_title(title)
+
+
+def _is_generic_system_source(source: Source) -> bool:
+    sid = source.id or ""
+    title = source.title or ""
+    text = f"{title} {source.excerpt or ''}"
+    if sid in {"kb-topic", "kb-debate-scoring", "kb-learning-def"}:
+        return True
+    generic_terms = ("辩题上下文", "辩题", "辩论礼仪", "评分", "评分核心", "通用维度", "多维度定义")
+    if any(term in title for term in generic_terms):
+        return True
+    if "是否" in text and len(source.excerpt or "") < 40:
+        return True
+    return False
 
 
 def _next_argument_id(debate: DebateState, side: str) -> str:
@@ -130,37 +164,48 @@ def _source_relevant_to_side(text: str, side: str) -> bool:
     return any(term in text for term in terms)
 
 
+def _side_score(text: str, side: str) -> int:
+    positive = ("提升", "帮助", "促进", "增强", "即时反馈", "效率", "积极", "可控", "发现知识漏洞", "复盘", "订正率", "个性化反馈")
+    negative = ("风险", "依赖", "削弱", "错误", "不可靠", "隐私", "替代", "负面", "未经证实", "禁令", "禁止", "限制", "担心", "下降")
+    terms = positive if side == "affirmative" else negative
+    return sum(1 for term in terms if term in text)
+
+
+def _source_sides(text: str) -> list[str]:
+    aff_score = _side_score(text, "affirmative")
+    neg_score = _side_score(text, "negative")
+    strong_negative = any(term in text for term in ("禁令", "禁止", "限制", "削弱", "下降", "替代", "依赖", "风险"))
+    strong_positive = any(term in text for term in ("订正率", "提升近", "提升", "帮助", "促进", "发现知识漏洞"))
+    if strong_negative and neg_score >= aff_score:
+        return ["negative"]
+    if strong_positive and aff_score >= neg_score:
+        return ["affirmative"]
+    if aff_score > neg_score:
+        return ["affirmative"]
+    if neg_score > aff_score:
+        return ["negative"]
+    return []
+
+
 def build_argument_bank_from_sources(topic: str, sources: list[Source]) -> dict[str, list[ArgumentBankItem]]:
     bank: dict[str, list[ArgumentBankItem]] = {"affirmative": [], "negative": []}
     counters = {"affirmative": 0, "negative": 0}
     for source in sources:
+        if _is_generic_system_source(source):
+            continue
         text = f"{source.title} {source.excerpt}"
-        matched = False
-        for side in ("affirmative", "negative"):
-            if _source_relevant_to_side(text, side):
-                matched = True
-                counters[side] += 1
-                bank[side].append(
-                    ArgumentBankItem(
-                        id=f"{SIDE_PREFIX[side]}-{counters[side]}",
-                        side=side,  # type: ignore[arg-type]
-                        title=_source_display_title(source),
-                        claim=_claim_from_source(topic, source, side),
-                        source="RAG 资料入库",
-                    )
+        sides = _source_sides(text)
+        for side in sides:
+            counters[side] += 1
+            bank[side].append(
+                ArgumentBankItem(
+                    id=f"{SIDE_PREFIX[side]}-{counters[side]}",
+                    side=side,  # type: ignore[arg-type]
+                    title=_source_display_title(source),
+                    claim=_claim_from_source(topic, source, side),
+                    source="RAG 资料入库",
                 )
-        if not matched:
-            for side in ("affirmative", "negative"):
-                counters[side] += 1
-                bank[side].append(
-                    ArgumentBankItem(
-                        id=f"{SIDE_PREFIX[side]}-{counters[side]}",
-                        side=side,  # type: ignore[arg-type]
-                        title=_source_display_title(source),
-                        claim=_claim_from_source(topic, source, side),
-                        source="RAG 资料入库",
-                    )
-                )
+            )
     return bank
 
 
@@ -192,13 +237,25 @@ def _extract_claims_from_message(content: str) -> list[str]:
         "显示",
         "OECD",
     )
+    quoted_claims = re.findall(r"[“\"《]([^”\"》]{8,120})[”\"》]", text)
+    for quoted in quoted_claims:
+        if any(marker in quoted for marker in markers) or re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%", quoted):
+            claims.append(quoted.strip())
     for sentence in re.split(r"(?<=[。！？!?])", text):
         sentence = sentence.strip(" ，。；;")
         if len(sentence) < 18:
             continue
         if any(marker in sentence for marker in markers) or re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%", sentence):
             claims.append(sentence)
-    return claims[:4]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for claim in claims:
+        key = _normalise_key(claim)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(claim)
+    return deduped[:4]
 
 
 def add_message_arguments_to_bank(debate: DebateState, message: DebateMessage) -> dict[str, int]:

@@ -179,6 +179,13 @@ class OpeningTrainingAutoImprove(BaseModel):
     max_rounds: int = Field(default=6, ge=1, le=12)
 
 
+class OpeningTrainingPolish(BaseModel):
+    topic: str
+    side: Literal["affirmative", "negative"] = "affirmative"
+    draft: str
+    advice: list[str] = Field(default_factory=list)
+
+
 class UserDraftUpdate(BaseModel):
     draft: str = ""
 

@@ -5,7 +5,7 @@ export const VISIBILITY_MODES = [
     id: "all_visible",
     label: "全部可见",
     shortLabel: "全部",
-    hint: "显示双方队内讨论、裁判思路与全部复盘信息，适合 AI 自主辩论和赛后训练。",
+    hint: "显示双方队内讨论、AI 策略与全部复盘信息，适合 AI 自主辩论和赛后训练。",
   },
   {
     id: "own_side_only",

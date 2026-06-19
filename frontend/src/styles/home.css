@@ -1602,6 +1602,16 @@
   width: fit-content;
 }
 
+.opening-polish-btn {
+  width: fit-content;
+  margin-left: 10px;
+  background: #2f5f48;
+}
+
+.opening-polish-btn:disabled {
+  background: rgba(72, 54, 41, 0.16);
+}
+
 .opening-score {
   display: flex;
   align-items: center;

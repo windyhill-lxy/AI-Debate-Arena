@@ -2251,9 +2251,18 @@ button.active,
 
 .workflow-mindmap__links path {
   fill: none;
-  stroke: rgba(87, 69, 54, 0.22);
-  stroke-width: 3;
-  stroke-linecap: round;
+  stroke: rgba(45, 42, 38, 0.72);
+  stroke-width: 1.5;
+  stroke-linecap: square;
+  stroke-linejoin: round;
+}
+
+.workflow-mindmap__links text {
+  fill: #3f342c;
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: rgba(255, 252, 245, 0.9);
+  stroke-width: 4px;
 }
 
 .workflow-mindmap__nodes {
@@ -2345,14 +2354,66 @@ button.active,
 
 .mind-node {
   position: absolute;
-  width: 230px;
-  min-height: 78px;
-  padding: 12px 13px;
-  border: 1px solid rgba(72, 54, 41, 0.12);
-  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  width: 168px;
+  min-height: 74px;
+  padding: 10px 12px;
+  border: 1.5px solid rgba(33, 45, 58, 0.72);
+  border-radius: 9px;
   background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 16px 40px rgba(72, 47, 28, 0.08);
+  box-shadow: 0 12px 28px rgba(72, 47, 28, 0.07);
   transform: translate(-50%, -50%);
+}
+
+.mind-node.action {
+  background: #f8c36d;
+}
+
+.mind-node.retrieval {
+  background: #79d51d;
+}
+
+.mind-node.llm {
+  background: #e58392;
+}
+
+.mind-node.router,
+.mind-node.check,
+.mind-node.judge {
+  width: 106px;
+  min-height: 106px;
+  border-radius: 8px;
+  background: #4b93df;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.mind-node.check {
+  background: #78dc19;
+}
+
+.mind-node.judge {
+  background: #e88494;
+}
+
+.mind-node.terminal {
+  border-radius: 999px;
+  background: #f7a51e;
+}
+
+.mind-node__inner {
+  display: grid;
+  gap: 4px;
+  place-items: center;
+  max-width: 100%;
+  text-align: center;
+}
+
+.mind-node.router .mind-node__inner,
+.mind-node.check .mind-node__inner,
+.mind-node.judge .mind-node__inner {
+  width: 94px;
+  transform: rotate(-45deg);
 }
 
 .workflow-stage-label {
@@ -2386,18 +2447,39 @@ button.active,
   font-weight: 850;
 }
 
+.mind-node.router span,
+.mind-node.check span,
+.mind-node.judge span {
+  color: rgba(255, 255, 255, 0.78);
+}
+
 .mind-node strong {
   display: block;
   margin: 5px 0 4px;
   color: #352c26;
   font-size: 13px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mind-node.router strong,
+.mind-node.check strong,
+.mind-node.judge strong {
+  color: #fff;
+  font-size: 13px;
 }
 
 .mind-node p {
   margin: 0;
   color: #826a55;
   font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.mind-node.router p,
+.mind-node.check p,
+.mind-node.judge p {
+  display: none;
 }
 
 .mind-node.running {

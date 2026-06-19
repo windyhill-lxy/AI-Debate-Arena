@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator
 from typing import Literal
@@ -115,6 +116,10 @@ def _opening_standard_met(analysis: dict) -> bool:
     )
 
 
+def _review_says_not_ready(review: str) -> bool:
+    return bool(re.search(r"尚未达到|未达到|不达标|还不能|不能按满分|需要继续|下一轮必须", review or ""))
+
+
 def _clean_speech_text(text: str) -> str:
     text = re.sub(r"[*#>`_~]+", "", text or "")
     text = text.replace("——", "，").replace("--", "，").replace("—", "，")
@@ -211,7 +216,9 @@ async def _stream_opening_with_ai(
             operation="opening_training_auto_improve_stream",
         ):
             if chunk:
-                yield chunk
+                for index in range(0, len(chunk), 36):
+                    yield chunk[index:index + 36]
+                    await asyncio.sleep(0)
     except (DeepSeekError, Exception):
         fallback = _fallback_opening(topic, side, advice)
         for index in range(0, len(fallback), 48):
@@ -281,7 +288,7 @@ async def _review_opening_with_ai(
             operation="opening_training_review",
         )
         cleaned = _clean_speech_text(review)
-        if len(cleaned) >= 100:
+        if len(cleaned) >= 180 and any(term in cleaned for term in ("结构", "论据", "下一版", "修改")):
             return cleaned
     except (DeepSeekError, Exception):
         pass
@@ -313,7 +320,7 @@ async def auto_improve_opening_draft(
         draft = await _generate_opening_with_ai(topic, side, advice_memory, previous_drafts)
         analysis = analyze_opening_draft(topic, side, draft)
         review_text = await _review_opening_with_ai(topic, side, draft, analysis)
-        current_passed = _opening_standard_met(analysis)
+        current_passed = _opening_standard_met(analysis) and not _review_says_not_ready(review_text)
         final_draft = draft
         final_analysis = analysis
         passed = current_passed
@@ -347,7 +354,7 @@ async def auto_improve_opening_draft(
                 "content": review_text,
             }
         )
-        if current_passed:
+        if current_passed and (round_index >= 2 or max_rounds == 1):
             break
         previous_drafts.append(draft)
         advice_memory.extend(analysis["revision_advice"])
@@ -418,7 +425,7 @@ async def auto_improve_opening_draft_events(
 
         analysis = analyze_opening_draft(topic, side, draft)
         review_text = await _review_opening_with_ai(topic, side, draft, analysis)
-        current_passed = _opening_standard_met(analysis)
+        current_passed = _opening_standard_met(analysis) and not _review_says_not_ready(review_text)
         review_event = {
             "id": f"review-{round_index}",
             "role": "reviewer",
@@ -443,7 +450,7 @@ async def auto_improve_opening_draft_events(
         final_draft = draft
         final_analysis = analysis
         passed = current_passed
-        if current_passed:
+        if current_passed and (round_index >= 2 or max_rounds == 1):
             break
         previous_drafts.append(draft)
         advice_memory.extend(analysis["revision_advice"])
@@ -460,4 +467,51 @@ async def auto_improve_opening_draft_events(
             "rounds": rounds,
             "conversation": conversation,
         },
+    }
+
+
+async def polish_opening_draft(
+    topic: str,
+    side: Literal["affirmative", "negative"],
+    draft: str,
+    advice: list[str] | None = None,
+) -> dict:
+    text = (draft or "").strip()
+    if not text:
+        raise ValueError("立论内容不能为空")
+    analysis = analyze_opening_draft(topic, side, text)
+    advice_text = "\n".join((advice or []) + analysis.get("revision_advice", []))
+    side_label = "正方" if side == "affirmative" else "反方"
+    try:
+        polished = await chat_completion(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是中文辩论一辩教练。请在保留原立场和核心意思的基础上润色成正式一辩立论。"
+                        "不要使用破折号、星号粗体、代码块。语言要流畅，适合现场朗读。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"辩题：{topic}\n持方：{side_label}\n"
+                        f"修改建议：\n{advice_text}\n"
+                        f"原稿：\n{text}\n\n"
+                        "请输出润色后的完整一辩立论稿，包含定义、判断标准、三个论点、论据补强和结尾收束。"
+                    ),
+                },
+            ],
+            temperature=0.45,
+            max_tokens=1800,
+            operation="opening_training_polish",
+        )
+        polished = _clean_speech_text(polished)
+    except (DeepSeekError, Exception):
+        polished = _fallback_opening(topic, side, analysis.get("revision_advice", []))
+    return {
+        "topic": topic,
+        "side": side,
+        "analysis": analysis,
+        "polished_draft": polished,
     }

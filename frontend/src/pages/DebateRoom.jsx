@@ -221,7 +221,6 @@ export default function DebateRoom({ leaveGuardRef }) {
       <DebateRightRail
         debate={room.debate}
         activeAgent={room.activeAgent}
-        judgeThoughts={room.judgeThoughts}
         aiStrategyNotes={room.aiStrategyNotes}
         streaming={room.streaming}
         participant={room.participant}

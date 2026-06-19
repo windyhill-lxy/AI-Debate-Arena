@@ -90,6 +90,21 @@ def test_build_argument_bank_from_sources_uses_natural_titles() -> None:
     assert "未找到" not in bank["affirmative"][0].claim
 
 
+def test_argument_bank_filters_generic_or_wrong_side_sources() -> None:
+    sources = [
+        Source(id="kb-debate-scoring", title="辩论礼仪", excerpt="逻辑一致性与证据可验证性是评分核心。"),
+        Source(id="kb-topic", title="辩题上下文", excerpt="人工智能是否会提升青少年的综合学习能力"),
+        Source(id="mat-risk", title="韩国AI作业禁令", excerpt="韩国限制小学生用 AI 完成家庭作业，担心主动思考下降。"),
+        Source(id="mat-feedback", title="AI作业批改调研", excerpt="某省重点中学引入 AI 作业批改系统后，学生错题订正率提升近30%。"),
+        Source(id="mat-generic", title="AI学习", excerpt="AI 个性化反馈帮助学生精准发现知识漏洞，提升错题复盘效率。"),
+    ]
+
+    bank = build_argument_bank_from_sources("人工智能是否会提升学习能力", sources)
+
+    assert [item.title for item in bank["affirmative"]] == ["AI作业批改订正率提升", "AI个性化反馈发现漏洞"]
+    assert [item.title for item in bank["negative"]] == ["韩国AI作业禁令"]
+
+
 def test_sources_incrementally_enter_argument_bank_after_initial_lock() -> None:
     debate = _debate()
     first = [Source(title="即时反馈资料", excerpt="AI 个性化反馈帮助学生发现知识漏洞。")]
@@ -127,3 +142,25 @@ def test_ai_message_sources_and_new_claims_are_saved_as_arguments() -> None:
     assert added["negative"] >= 1
     assert any("韩国AI作业禁令" == item.title for item in debate.argument_bank["negative"])
     assert any("主动学习" in item.claim or "家庭作业" in item.claim for item in debate.argument_bank["negative"])
+
+
+def test_ai_message_argument_title_prefers_concrete_case_not_speaker_setup() -> None:
+    debate = _debate()
+    message = DebateMessage(
+        debate_id=debate.id,
+        speaker_id="aff_1",
+        speaker_name="云汐",
+        side="affirmative",
+        phase="opening_prep",
+        segment_label="正方队内讨论",
+        content=(
+            "我作为一辩先定定义和框架，第一论点 AI 个性化反馈能精准发现知识漏洞、提升效率我来主讲，"
+            "例子上用那篇“某省重点中学引入AI作业批改系统后学生错题订正率提升近30%”的调研。"
+        ),
+    )
+
+    add_message_arguments_to_bank(debate, message)
+
+    titles = [item.title for item in debate.argument_bank["affirmative"]]
+    assert "AI作业批改订正率提升" in titles
+    assert all(not title.startswith("我作为") for title in titles)

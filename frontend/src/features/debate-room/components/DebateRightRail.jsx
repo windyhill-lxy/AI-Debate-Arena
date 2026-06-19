@@ -1,10 +1,9 @@
 import { useRef, useState } from "react";
-import { BookOpen, Brain, Download, Expand, Gavel, Globe, Lightbulb, Network, Users, X } from "lucide-react";
+import { BookOpen, Download, Expand, Gavel, Globe, Lightbulb, Network, Users, X } from "lucide-react";
 import MarkdownBody from "../../../components/MarkdownBody.jsx";
 import OnlineSimplePanel from "../../../components/OnlineSimplePanel.jsx";
 import {
   displaySpeakerName,
-  isJudgeThought,
   isTeamDiscussion,
   teamDiscussionSide,
 } from "../../../utils/debateDisplay.js";
@@ -24,17 +23,24 @@ function escapeXml(value) {
 }
 
 function buildWorkflowLayout(columns) {
-  const NODE_W = 230;
-  const NODE_H = 78;
-  const ROW_GAP = 22;
-  const STAGE_GAP = 34;
-  const PAD_X = 28;
+  const NODE_W = 168;
+  const NODE_H = 74;
+  const ROW_GAP = 30;
+  const STAGE_GAP = 42;
+  const PAD_X = 36;
   const PAD_Y = 36;
-  const STAGE_W = 156;
-  const NODE_X = PAD_X + STAGE_W + NODE_W / 2 + 30;
+  const STAGE_W = 132;
+  const CENTER_X = PAD_X + STAGE_W + 300;
   const nodes = [];
   const stages = [];
   let y = PAD_Y + NODE_H / 2;
+  const xForNode = (node, index) => {
+    if (node.kind === "router" || node.kind === "check" || node.kind === "judge") return CENTER_X;
+    if (node.kind === "retrieval") return CENTER_X - 190;
+    if (node.kind === "llm") return CENTER_X + 190;
+    if (node.id?.includes("end") || node.id?.includes("final") || node.id?.includes("router")) return CENTER_X;
+    return CENTER_X + (index % 2 === 0 ? -92 : 92);
+  };
   for (const [stageIndex, column] of (columns || []).entries()) {
     const stageNodes = [...(column.nodes || [])].sort((a, b) => (a.lane || 0) - (b.lane || 0));
     if (!stageNodes.length) continue;
@@ -43,9 +49,10 @@ function buildWorkflowLayout(columns) {
       nodes.push({
         ...node,
         stage: column.stage,
-        x: NODE_X,
+        x: xForNode(node, nodeIndex),
         y,
         order: `${stageIndex + 1}.${nodeIndex + 1}`,
+        terminal: /结束|输出裁判报告|赛制环节推进/.test(node.label || ""),
       });
       y += NODE_H + ROW_GAP;
     }
@@ -59,7 +66,7 @@ function buildWorkflowLayout(columns) {
     });
     y += STAGE_GAP;
   }
-  const width = 560;
+  const width = 860;
   const height = Math.max(320, y + PAD_Y);
   return { nodes, stages, width, height, nodeWidth: NODE_W, nodeHeight: NODE_H };
 }
@@ -70,7 +77,9 @@ function exportWorkflowSVG(columns, topic) {
 
   const paths = nodes.slice(1).map((n, i) => {
     const prev = nodes[i];
-    return `<path d="M${prev.x},${prev.y + nodeHeight / 2} C${prev.x},${prev.y + nodeHeight / 2 + 12} ${n.x},${n.y - nodeHeight / 2 - 12} ${n.x},${n.y - nodeHeight / 2}" fill="none" stroke="#c9b9a5" stroke-width="2"/>`;
+    const midY = (prev.y + n.y) / 2;
+    const label = ["router", "check", "judge"].includes(prev.kind) ? (n.x <= prev.x ? "yes" : "no") : "";
+    return `<path d="M${prev.x},${prev.y + nodeHeight / 2} V${midY} H${n.x} V${n.y - nodeHeight / 2}" fill="none" stroke="#444" stroke-width="1.4"/><text x="${(prev.x + n.x) / 2 + 4}" y="${midY - 5}" font-size="11" fill="#333" font-family="sans-serif">${label}</text>`;
   });
 
   const stageLabels = stages.map((stage) => `
@@ -85,7 +94,7 @@ function exportWorkflowSVG(columns, topic) {
     const status = n.status === "done" ? "opacity:0.5" : n.status === "running" ? "filter:drop-shadow(0 0 4px #334a8a)" : "";
     return `
     <g transform="translate(${n.x - nodeWidth / 2},${n.y - nodeHeight / 2})" style="${status}">
-      <rect width="${nodeWidth}" height="${nodeHeight}" rx="10" fill="${color}18" stroke="${color}" stroke-width="1.5"/>
+      <rect width="${nodeWidth}" height="${nodeHeight}" rx="${n.terminal ? 28 : 10}" fill="${color}18" stroke="${color}" stroke-width="1.5"/>
       <text x="8" y="20" font-size="10" fill="${color}" font-weight="600" font-family="sans-serif">${n.kind?.toUpperCase()}</text>
       <text x="${nodeWidth / 2}" y="44" font-size="13" fill="#2c241f" font-weight="700" text-anchor="middle" font-family="sans-serif">${escapeXml(n.label)}</text>
       <text x="${nodeWidth / 2}" y="62" font-size="10" fill="#6b5a48" text-anchor="middle" font-family="sans-serif">${escapeXml(n.stage)}</text>
@@ -156,11 +165,13 @@ function WorkflowMindMap({ columns, interactive = false }) {
       <svg className="workflow-mindmap__links" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
         {nodes.slice(1).map((node, index) => {
           const prev = nodes[index];
+          const midY = (prev.y + node.y) / 2;
+          const label = ["router", "check", "judge"].includes(prev.kind) ? (node.x <= prev.x ? "yes" : "no") : "";
           return (
-            <path
-              key={`${prev.id}-${node.id}`}
-              d={`M ${prev.x} ${prev.y + 40} C ${prev.x} ${prev.y + 58}, ${node.x} ${node.y - 58}, ${node.x} ${node.y - 40}`}
-            />
+            <g key={`${prev.id}-${node.id}`}>
+              <path d={`M ${prev.x} ${prev.y + 40} V ${midY} H ${node.x} V ${node.y - 40}`} />
+              {label && <text x={(prev.x + node.x) / 2 + 5} y={midY - 6}>{label}</text>}
+            </g>
           );
         })}
       </svg>
@@ -178,12 +189,14 @@ function WorkflowMindMap({ columns, interactive = false }) {
         {nodes.map((node) => (
           <article
             key={node.id}
-            className={`mind-node ${node.status} ${node.kind || ""}`}
+            className={`mind-node ${node.status} ${node.kind || ""} ${node.terminal ? "terminal" : ""}`}
             style={{ left: node.x, top: node.y }}
           >
-            <span>{node.order}</span>
-            <strong>{node.label}</strong>
-            <p>{node.stage}</p>
+            <div className="mind-node__inner">
+              <span>{node.order}</span>
+              <strong>{node.label}</strong>
+              <p>{node.stage}</p>
+            </div>
           </article>
         ))}
       </div>
@@ -221,7 +234,6 @@ function DockLabel({ icon, label }) {
 export default function DebateRightRail({
   debate,
   activeAgent,
-  judgeThoughts,
   aiStrategyNotes = [],
   streaming,
   participant,
@@ -270,9 +282,6 @@ export default function DebateRightRail({
             <DockLabel icon={<Globe size={18} />} label="联机" />
           </button>
         )}
-        <button className={`dock-btn ${activeTab === "judge" ? "active" : ""}`} onClick={() => toggleTab("judge")} title="裁判思路">
-          <DockLabel icon={<Brain size={18} />} label="裁判" />
-        </button>
         {visibility === "context" && (
           <button className={`dock-btn ${activeTab === "strategy" ? "active" : ""}`} onClick={() => toggleTab("strategy")} title="AI 策略">
             <DockLabel icon={<Lightbulb size={18} />} label="策略" />
@@ -296,7 +305,6 @@ export default function DebateRightRail({
               <h3>
                 {activeTab === "turn" && "当前回合"}
                 {activeTab === "online" && "邀请同学"}
-                {activeTab === "judge" && "裁判思路"}
                 {activeTab === "strategy" && "AI 策略"}
                 {activeTab === "team" && "队内讨论"}
                 {activeTab === "arguments" && "论据库"}
@@ -361,31 +369,6 @@ export default function DebateRightRail({
                         ))}
                     </div>
                   </details>
-                </section>
-              )}
-
-              {activeTab === "judge" && (
-                <section className="panel judge-thought-panel">
-                  <div className="judge-thought-list">
-                    {visibility === "realistic" && (
-                      <p className="empty-note">赛场视角不展示裁判内部思路。</p>
-                    )}
-                    {visibility !== "realistic" && judgeThoughts.length === 0 && !(streaming && isJudgeThought(streaming)) && (
-                      <p className="empty-note">等待裁判进入最终裁决分析阶段。</p>
-                    )}
-                    {visibility !== "realistic" && judgeThoughts.map((message) => (
-                      <article key={message.id} className="judge-thought-item">
-                        <strong>{message.segment_label}</strong>
-                        <MarkdownBody content={message.content} />
-                      </article>
-                    ))}
-                    {visibility !== "realistic" && streaming && isJudgeThought(streaming) && (
-                      <article className="judge-thought-item streaming-message">
-                        <strong>{streaming.segment_label || "裁判分析"}</strong>
-                        <MarkdownBody content={streaming.content} streaming />
-                      </article>
-                    )}
-                  </div>
                 </section>
               )}
 

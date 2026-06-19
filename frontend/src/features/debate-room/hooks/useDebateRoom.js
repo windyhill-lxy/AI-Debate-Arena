@@ -3,7 +3,6 @@ import { useLocation, useParams } from "react-router-dom";
 import {
   buildClientHistoryMarkdown,
   downloadTextFile,
-  isJudgeThought,
   isPublicStageMessage,
   isTeamDiscussion,
   teamDiscussionSide,
@@ -350,11 +349,6 @@ export function useDebateRoom() {
   }, [debate.messages, visibility]);
 
   const processTimeline = useMemo(() => debate.messages, [debate.messages]);
-
-  const judgeThoughts = useMemo(() => {
-    if (visibility === "realistic") return [];
-    return debate.messages.filter((message) => isJudgeThought(message));
-  }, [debate.messages, visibility]);
 
   const speakingNow = useMemo(() => {
     if (streaming) {
@@ -948,7 +942,6 @@ export function useDebateRoom() {
     teamDiscussions,
     aiStrategyNotes,
     processTimeline,
-    judgeThoughts,
     speakingNow,
     workflowColumns,
     showStreamingPublic,

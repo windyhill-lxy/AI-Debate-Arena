@@ -19,11 +19,11 @@ async function analyzeOpening({ topic, side, draft }) {
   return response.json();
 }
 
-async function autoImproveOpening({ topic, side, maxRounds }) {
-  const response = await fetch(`${API_BASE}/api/debates/opening-training/auto-improve`, {
+async function polishOpening({ topic, side, draft, advice }) {
+  const response = await fetch(`${API_BASE}/api/debates/opening-training/polish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic, side, max_rounds: maxRounds }),
+    body: JSON.stringify({ topic, side, draft, advice }),
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
@@ -113,6 +113,34 @@ export default function OpeningTraining() {
       setHint("分析完成。");
     } catch (error) {
       setHint(`分析失败：${error.message || "请确认后端已启动"}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onPolish() {
+    if (!topic.trim() || !draft.trim() || !result?.revision_advice) return;
+    setLoading(true);
+    setHint("AI 正在依据评审意见润色立论稿…");
+    try {
+      const data = await polishOpening({ topic, side, draft, advice: result.revision_advice || [] });
+      const polished = data.polished_draft || "";
+      setDraft(polished);
+      setResult(data.analysis || result);
+      setConversation((current) => [
+        ...current,
+        {
+          id: `polish-${Date.now()}`,
+          speaker_name: "AI一辩润色稿",
+          avatar: resolveTrainingAvatar("", "writer", side),
+          role: "writer",
+          kind: "polish",
+          content: polished,
+        },
+      ]);
+      setHint("润色完成，已回填到左侧立论稿。");
+    } catch (error) {
+      setHint(`润色失败：${error.message || "请确认后端已启动"}`);
     } finally {
       setLoading(false);
     }
@@ -245,6 +273,14 @@ export default function OpeningTraining() {
                     开始智能评审 <Sparkles size={18} />
                   </>
                 )}
+              </button>
+              <button
+                type="button"
+                className="home-cta opening-polish-btn"
+                disabled={loading || !topic.trim() || !draft.trim() || !result?.revision_advice}
+                onClick={onPolish}
+              >
+                AI 一键润色 <Sparkles size={18} />
               </button>
             </>
           ) : (

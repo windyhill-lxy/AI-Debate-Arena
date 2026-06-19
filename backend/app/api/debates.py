@@ -22,6 +22,7 @@ from app.models import (
     DebateVisibility,
     OpeningTrainingAutoImprove,
     OpeningTrainingAnalyze,
+    OpeningTrainingPolish,
     MaterialUpload,
     OnlineParticipant,
     ParticipantJoin,
@@ -60,7 +61,7 @@ from app.services.user_speech_judge import UserSpeechReview, review_user_speech
 from app.services.rag import index_debate_topic, ingest_materials, retrieve_sources
 from app.services.runtime_settings import RuntimeSettings, apply_runtime_settings, load_runtime_settings, mask_key
 from app.services.schedule_config import list_schedule_templates_meta
-from app.services.training import analyze_opening_draft, auto_improve_opening_draft, auto_improve_opening_draft_events
+from app.services.training import analyze_opening_draft, auto_improve_opening_draft, auto_improve_opening_draft_events, polish_opening_draft
 from app.services import presence
 from app.services.realtime import manager
 from app.services.ops_events import append_ops_event
@@ -662,6 +663,14 @@ async def auto_improve_opening_training_stream(payload: OpeningTrainingAutoImpro
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/opening-training/polish")
+async def polish_opening_training(payload: OpeningTrainingPolish) -> dict:
+    try:
+        return await polish_opening_draft(payload.topic, payload.side, payload.draft, payload.advice)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("", dependencies=[Depends(enforce_create_room_limit)])
