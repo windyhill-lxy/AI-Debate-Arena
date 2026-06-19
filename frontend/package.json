@@ -15,11 +15,13 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "@xyflow/react": "^12.11.0",
+    "dagre": "^0.8.5",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.15.1",
-    "vite": "latest"
+    "vite": "^8.0.16"
   }
 }

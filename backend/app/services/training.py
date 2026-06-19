@@ -240,6 +240,33 @@ def _analysis_summary(analysis: dict) -> str:
     )
 
 
+def _review_generation_messages(
+    topic: str,
+    side: Literal["affirmative", "negative"],
+    draft: str,
+    analysis: dict,
+) -> list[dict[str, str]]:
+    side_label = "正方" if side == "affirmative" else "反方"
+    prompt = (
+        f"辩题：{topic}\n持方：{side_label}\n"
+        f"机器结构评分：{analysis.get('score', 0)}\n"
+        f"结构检查：{analysis.get('structure', {})}\n"
+        f"RAG 检查：{analysis.get('rag_checks', {})}\n"
+        f"初步建议：{analysis.get('revision_advice', [])}\n"
+        f"待审核立论：\n{draft}\n\n"
+        "请以严格辩论裁判兼一辩教练身份，输出详细审核意见。"
+        "必须包含：是否达标、结构问题、论据问题、事实核验风险、对方可能攻击点、下一版具体改法。"
+        "语言要自然，适合前端直接朗读，不要使用破折号、星号粗体或代码块。"
+    )
+    return [
+        {
+            "role": "system",
+            "content": "你是中文辩论赛一辩教练和严格裁判。只输出详细审核意见，不要替辩手直接重写全文。",
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+
 def _detailed_review_fallback(topic: str, side: Literal["affirmative", "negative"], draft: str, analysis: dict) -> str:
     side_label = "正方" if side == "affirmative" else "反方"
     advice = " ".join(analysis.get("revision_advice", []))
@@ -262,27 +289,9 @@ async def _review_opening_with_ai(
     draft: str,
     analysis: dict,
 ) -> str:
-    side_label = "正方" if side == "affirmative" else "反方"
-    prompt = (
-        f"辩题：{topic}\n持方：{side_label}\n"
-        f"机器结构评分：{analysis.get('score', 0)}\n"
-        f"结构检查：{analysis.get('structure', {})}\n"
-        f"RAG 检查：{analysis.get('rag_checks', {})}\n"
-        f"初步建议：{analysis.get('revision_advice', [])}\n"
-        f"待审核立论：\n{draft}\n\n"
-        "请以严格辩论裁判兼一辩教练身份，输出详细审核意见。"
-        "必须包含：是否达标、结构问题、论据问题、事实核验风险、对方可能攻击点、下一版具体改法。"
-        "语言要自然，适合前端直接朗读，不要使用破折号、星号粗体或代码块。"
-    )
     try:
         review = await chat_completion(
-            [
-                {
-                    "role": "system",
-                    "content": "你是中文辩论赛一辩教练和严格裁判。只输出详细审核意见，不要替辩手直接重写全文。",
-                },
-                {"role": "user", "content": prompt},
-            ],
+            _review_generation_messages(topic, side, draft, analysis),
             temperature=0.35,
             max_tokens=1400,
             operation="opening_training_review",
@@ -293,6 +302,40 @@ async def _review_opening_with_ai(
     except (DeepSeekError, Exception):
         pass
     return _detailed_review_fallback(topic, side, draft, analysis)
+
+
+async def _stream_review_with_ai(
+    topic: str,
+    side: Literal["affirmative", "negative"],
+    draft: str,
+    analysis: dict,
+) -> AsyncIterator[str]:
+    full_text = ""
+    try:
+        async for chunk in chat_completion_stream(
+            _review_generation_messages(topic, side, draft, analysis),
+            temperature=0.35,
+            max_tokens=1400,
+            operation="opening_training_review_stream",
+        ):
+            if not chunk:
+                continue
+            for index in range(0, len(chunk), 36):
+                piece = chunk[index:index + 36]
+                full_text += piece
+                yield piece
+                await asyncio.sleep(0)
+        cleaned = _clean_speech_text(full_text)
+        if len(cleaned) >= 180 and any(term in cleaned for term in ("结构", "论据", "下一版", "修改")):
+            return
+    except (DeepSeekError, Exception):
+        pass
+    fallback = _detailed_review_fallback(topic, side, draft, analysis)
+    if _clean_speech_text(full_text) == _clean_speech_text(fallback):
+        return
+    for index in range(0, len(fallback), 48):
+        yield fallback[index:index + 48]
+        await asyncio.sleep(0)
 
 
 async def auto_improve_opening_draft(
@@ -424,10 +467,27 @@ async def auto_improve_opening_draft_events(
         yield {"type": "draft", "message": draft_event}
 
         analysis = analyze_opening_draft(topic, side, draft)
-        review_text = await _review_opening_with_ai(topic, side, draft, analysis)
+        review_text = ""
+        review_id = f"review-{round_index}"
+        review_event = {
+            "id": review_id,
+            "role": "reviewer",
+            "speaker_name": "AI裁判",
+            "avatar": reviewer_avatar,
+            "kind": "analysis",
+            "round": round_index,
+            "content": "",
+        }
+        conversation.append(review_event)
+        yield {"type": "review_start", "message": review_event, "analysis": analysis}
+        async for chunk in _stream_review_with_ai(topic, side, draft, analysis):
+            review_text = _clean_speech_text(review_text + chunk)
+            review_event = {**review_event, "content": review_text}
+            conversation[-1] = review_event
+            yield {"type": "review_delta", "message": review_event, "text": chunk, "full_text": review_text}
         current_passed = _opening_standard_met(analysis) and not _review_says_not_ready(review_text)
         review_event = {
-            "id": f"review-{round_index}",
+            "id": review_id,
             "role": "reviewer",
             "speaker_name": "AI裁判",
             "avatar": reviewer_avatar,
@@ -435,7 +495,7 @@ async def auto_improve_opening_draft_events(
             "round": round_index,
             "content": review_text,
         }
-        conversation.append(review_event)
+        conversation[-1] = review_event
         yield {"type": "review", "message": review_event, "analysis": analysis, "passed": current_passed}
 
         rounds.append(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, FileCheck2, Loader2, Sparkles } from "lucide-react";
 import MarkdownBody from "../components/MarkdownBody.jsx";
@@ -101,6 +101,46 @@ export default function OpeningTraining() {
   const [conversation, setConversation] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState("");
+  const visibleContentRef = useRef({});
+  const targetContentRef = useRef({});
+  const revealTimersRef = useRef({});
+
+  function upsertConversationMessage(message) {
+    setConversation((current) => {
+      const index = current.findIndex((item) => item.id === message.id);
+      if (index >= 0) {
+        const next = [...current];
+        next[index] = { ...next[index], ...message };
+        return next;
+      }
+      return [...current, message];
+    });
+  }
+
+  function revealMessage(message) {
+    const id = message.id;
+    const target = message.content || "";
+    targetContentRef.current[id] = target;
+    if (visibleContentRef.current[id] == null) {
+      visibleContentRef.current[id] = "";
+      upsertConversationMessage({ ...message, content: "" });
+    }
+    if (revealTimersRef.current[id]) return;
+    const tick = () => {
+      const visible = visibleContentRef.current[id] || "";
+      const nextTarget = targetContentRef.current[id] || "";
+      if (visible.length >= nextTarget.length) {
+        revealTimersRef.current[id] = null;
+        upsertConversationMessage({ ...message, content: nextTarget });
+        return;
+      }
+      const nextVisible = nextTarget.slice(0, Math.min(nextTarget.length, visible.length + 8));
+      visibleContentRef.current[id] = nextVisible;
+      upsertConversationMessage({ ...message, content: nextVisible });
+      revealTimersRef.current[id] = window.setTimeout(tick, 18);
+    };
+    revealTimersRef.current[id] = window.setTimeout(tick, 0);
+  }
 
   async function onAnalyze() {
     if (!topic.trim() || !draft.trim()) return;
@@ -150,49 +190,36 @@ export default function OpeningTraining() {
     if (!topic.trim()) return;
     setLoading(true);
     setConversation([]);
+    visibleContentRef.current = {};
+    targetContentRef.current = {};
+    revealTimersRef.current = {};
     setResult(null);
     setHint("AI 一辩正在输出初稿…");
     try {
       await streamAutoImproveOpening({ topic, side, maxRounds }, (event) => {
-        if (event.type === "draft_start") {
+        if (event.type === "draft_start" || event.type === "review_start") {
           const message = event.message;
-          setConversation((current) => [
-            ...current,
-            {
-              ...message,
-              avatar: resolveTrainingAvatar(message.avatar, message.role, side),
-            },
-          ]);
-          setHint("AI 一辩正在流式输出立论稿…");
+          const normalized = {
+            ...message,
+            avatar: resolveTrainingAvatar(message.avatar, message.role, side),
+          };
+          visibleContentRef.current[message.id] = "";
+          targetContentRef.current[message.id] = "";
+          upsertConversationMessage(normalized);
+          setHint(event.type === "draft_start" ? "AI 一辩正在流式输出立论稿…" : "AI 裁判正在逐段审核这一版立论…");
         }
-        if (event.type === "draft_delta") {
+        if (event.type === "draft_delta" || event.type === "review_delta") {
           const message = event.message;
-          setConversation((current) => {
-            const next = [...current];
-            const index = next.findIndex((item) => item.id === message.id);
-            const normalized = {
-              ...message,
-              avatar: resolveTrainingAvatar(message.avatar, message.role, side),
-            };
-            if (index >= 0) next[index] = normalized;
-            else next.push(normalized);
-            return next;
+          revealMessage({
+            ...message,
+            avatar: resolveTrainingAvatar(message.avatar, message.role, side),
           });
         }
         if (event.type === "draft" || event.type === "review") {
           const message = event.message;
-          setConversation((current) => {
-            const normalized = {
-              ...message,
-              avatar: resolveTrainingAvatar(message.avatar, message.role, side),
-            };
-            const index = current.findIndex((item) => item.id === message.id);
-            if (index >= 0) {
-              const next = [...current];
-              next[index] = normalized;
-              return next;
-            }
-            return [...current, normalized];
+          revealMessage({
+            ...message,
+            avatar: resolveTrainingAvatar(message.avatar, message.role, side),
           });
           setHint(event.type === "draft" ? "AI 裁判正在审阅这一版立论…" : "AI 一辩正在参考裁判意见继续修改…");
         }

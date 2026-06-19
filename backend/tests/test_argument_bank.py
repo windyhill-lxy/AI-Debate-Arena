@@ -50,8 +50,14 @@ def test_argument_bank_partitions_by_side_and_enforces_ids() -> None:
 
 def test_build_argument_bank_items_creates_stable_positive_and_negative_ids() -> None:
     claims = {
-        "affirmative": ["即时反馈能缩短训练闭环", "多轮追问能暴露逻辑漏洞"],
-        "negative": ["过度依赖会削弱主动检索", "模型可能给出未经证实的案例"],
+        "affirmative": [
+            "2020年，卡内基梅隆大学的一项教育实验发现，使用AI自适应学习平台的学生，在数学测评中识别自身知识薄弱点的准确率比对照组高出百分之三十七。",
+            "某省重点中学引入AI作业批改系统后，学生错题订正率提升近30%。",
+        ],
+        "negative": [
+            "2021年一项针对高中生的调查显示，频繁使用AI解题后自主解题能力下降。",
+            "2024年韩国教育部门限制小学生用 AI 完成家庭作业。",
+        ],
     }
 
     bank = build_argument_bank_items(claims, source="AI 预生成论据库")
@@ -64,21 +70,21 @@ def test_build_argument_bank_items_creates_stable_positive_and_negative_ids() ->
 
 def test_build_argument_bank_items_creates_short_readable_titles() -> None:
     claims = {
-        "affirmative": ["即时反馈能缩短训练闭环，让辩手快速发现论证漏洞"],
-        "negative": ["模型可能给出未经证实的案例，导致立论事实基础不稳"],
+        "affirmative": ["某省重点中学引入AI作业批改系统后，学生错题订正率提升近30%。"],
+        "negative": ["2021年一项针对高中生的调查显示，频繁使用AI解题后自主解题能力下降。"],
     }
 
     bank = build_argument_bank_items(claims, source="AI 预生成论据库")
 
-    assert bank["affirmative"][0].title == "即时反馈缩短训练闭环"
-    assert bank["negative"][0].title == "模型案例未经证实"
+    assert bank["affirmative"][0].title == "AI作业批改订正率提升"
+    assert bank["negative"][0].title == "AI解题后自主解题下降"
     assert len(bank["affirmative"][0].title) <= 14
 
 
 def test_build_argument_bank_from_sources_uses_natural_titles() -> None:
     sources = [
-        Source(title="课堂反馈研究", excerpt="AI 能提供即时反馈，帮助学生更快修正写作和表达问题。"),
-        Source(title="工具依赖风险", excerpt="过度依赖 AI 会削弱自主检索、资料辨别和长期专注能力。"),
+        Source(title="课堂反馈研究", excerpt="2024年某省重点中学引入AI作业批改系统后，学生错题订正率提升近30%。"),
+        Source(title="工具依赖风险", excerpt="2021年一项针对高中生的调查显示，频繁使用AI解题后自主解题能力下降。"),
     ]
 
     bank = build_argument_bank_from_sources("人工智能是否会提升学习能力", sources)
@@ -101,13 +107,34 @@ def test_argument_bank_filters_generic_or_wrong_side_sources() -> None:
 
     bank = build_argument_bank_from_sources("人工智能是否会提升学习能力", sources)
 
-    assert [item.title for item in bank["affirmative"]] == ["AI作业批改订正率提升", "AI个性化反馈发现漏洞"]
+    assert [item.title for item in bank["affirmative"]] == ["AI作业批改订正率提升"]
     assert [item.title for item in bank["negative"]] == ["韩国AI作业禁令"]
+
+
+def test_argument_bank_only_accepts_factual_evidence_items() -> None:
+    claims = {
+        "affirmative": [
+            "二辩你主要思维训练，找类似可汗学院AI引导解题的案例，强调启发式追问。",
+            "认同框架，自主学习这块我上Duolingo自定进度的案例。",
+            "2020年，卡内基梅隆大学的一项教育实验发现，使用AI自适应学习平台的学生，在数学测评中识别自身知识薄弱点的准确率比对照组高出百分之三十七。",
+        ],
+        "negative": [
+            "我负责立论框架，重点讲AI带来的思维依赖风险。",
+            "四辩总结时强化案例，比如有学生过度依赖AI导致考试翻车的真实报道。",
+            "2021年一项针对高中生的调查显示，频繁使用AI解题后自主解题能力下降。",
+        ],
+    }
+
+    bank = build_argument_bank_items(claims, source="AI 预生成论据库")
+
+    assert [item.title for item in bank["affirmative"]] == ["AI自适应学习平台测评提升"]
+    assert [item.title for item in bank["negative"]] == ["AI解题后自主解题下降"]
+    assert all("我负责" not in item.claim and "二辩" not in item.claim and "认同框架" not in item.claim for item in bank["affirmative"] + bank["negative"])
 
 
 def test_sources_incrementally_enter_argument_bank_after_initial_lock() -> None:
     debate = _debate()
-    first = [Source(title="即时反馈资料", excerpt="AI 个性化反馈帮助学生发现知识漏洞。")]
+    first = [Source(title="即时反馈资料", excerpt="2024年某省重点中学引入AI作业批改系统后，学生错题订正率提升近30%。")]
     second = [Source(title="韩国AI作业禁令", excerpt="2024年韩国教育部门限制小学生用 AI 完成家庭作业，担心主动思考下降。")]
 
     added_first = add_sources_to_argument_bank(debate, first)
@@ -164,3 +191,25 @@ def test_ai_message_argument_title_prefers_concrete_case_not_speaker_setup() -> 
     titles = [item.title for item in debate.argument_bank["affirmative"]]
     assert "AI作业批改订正率提升" in titles
     assert all(not title.startswith("我作为") for title in titles)
+
+
+def test_ai_message_tactics_and_role_assignments_do_not_enter_argument_bank() -> None:
+    debate = _debate()
+    message = DebateMessage(
+        debate_id=debate.id,
+        speaker_id="aff_1",
+        speaker_name="云汐",
+        side="affirmative",
+        phase="opening_prep",
+        segment_label="正方队内讨论",
+        content=(
+            "二辩你主要思维训练，找类似可汗学院AI引导解题的案例，强调启发式追问。"
+            "四辩你收尾第三个点串成知道漏洞、会想问题、能自己查的闭环。"
+            "我这里有一条具体论据，但是先不展开。"
+        ),
+    )
+
+    added = add_message_arguments_to_bank(debate, message)
+
+    assert added == {"affirmative": 0, "negative": 0}
+    assert debate.argument_bank["affirmative"] == []

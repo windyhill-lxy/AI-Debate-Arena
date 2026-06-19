@@ -79,8 +79,8 @@ async def test_rag_retrieve_populates_argument_bank(monkeypatch, mock_llm_stream
     monkeypatch.setattr(
         "app.workflow.debate_graph.retrieve_sources",
         lambda *_args, **_kwargs: [
-            Source(title="即时反馈资料", excerpt="AI 能提供即时反馈，帮助学生更快修正表达问题。"),
-            Source(title="依赖风险资料", excerpt="过度依赖 AI 会削弱自主检索和资料辨别能力。"),
+            Source(title="即时反馈资料", excerpt="2024年某省重点中学引入AI作业批改系统后，学生错题订正率提升近30%。"),
+            Source(title="依赖风险资料", excerpt="2021年一项针对高中生的调查显示，频繁使用AI解题后自主解题能力下降。"),
         ],
     )
 
@@ -108,7 +108,7 @@ async def test_rag_retrieve_keeps_adding_new_materials_after_argument_bank_exist
     monkeypatch.setattr(
         "app.workflow.debate_graph.retrieve_sources",
         lambda *_args, **_kwargs: [
-            Source(title="韩国AI作业禁令", excerpt="韩国教育部门限制小学生用 AI 完成家庭作业，担心主动思考下降。"),
+            Source(title="韩国AI作业禁令", excerpt="2024年韩国教育部门限制小学生用 AI 完成家庭作业，担心主动思考下降。"),
         ],
     )
 

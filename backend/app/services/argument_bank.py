@@ -21,6 +21,14 @@ TITLE_STOPWORDS = (
     "将",
 )
 MAX_TITLE_LEN = 18
+FACT_PATTERN = re.compile(
+    r"\d{4}\s*年|\d+[\.\d]*\s*%|百分之[一二三四五六七八九十百千万零〇两]+|"
+    r"(大学|学院|中学|小学|教育部|OECD|联合国|法院|政府|平台|公司|机构|实验|调查|研究|报告|论文|报道|禁令|规定|法案|通知)"
+)
+REJECT_PATTERN = re.compile(
+    r"我作为|我负责|我来|你主要|你收尾|二辩|三辩|四辩|一辩先|认同框架|立论框架|"
+    r"找类似|强化案例|我这里有|具体论据|先不展开|重点讲|主讲|串成|闭环"
+)
 
 
 def short_argument_title(claim: str) -> str:
@@ -31,6 +39,10 @@ def short_argument_title(claim: str) -> str:
         return "AI作业批改订正率提升"
     if "韩国AI作业禁令" in (claim or ""):
         return "韩国AI作业禁令"
+    if "AI自适应学习平台" in (claim or "") and ("数学测评" in (claim or "") or "测评" in (claim or "")):
+        return "AI自适应学习平台测评提升"
+    if "AI解题" in (claim or "") and "自主解题" in (claim or "") and "下降" in (claim or ""):
+        return "AI解题后自主解题下降"
     if "AI" in (claim or "") and "个性化反馈" in (claim or "") and "知识漏洞" in (claim or ""):
         return "AI个性化反馈发现漏洞"
     text = re.split(r"[，。；;：:\n]", claim or "", maxsplit=1)[0]
@@ -53,6 +65,40 @@ def _normalise_key(text: str) -> str:
 
 def _argument_key(item: ArgumentBankItem) -> str:
     return _normalise_key(item.title or item.claim)
+
+
+def _is_factual_evidence(text: str, *, allow_rag_source: bool = False) -> bool:
+    compact = re.sub(r"\s+", "", text or "")
+    if not compact:
+        return False
+    if REJECT_PATTERN.search(compact):
+        return False
+    if allow_rag_source and FACT_PATTERN.search(compact):
+        return True
+    if not FACT_PATTERN.search(compact):
+        return False
+    has_outcome = any(
+        term in compact
+        for term in (
+            "提升",
+            "下降",
+            "增加",
+            "减少",
+            "限制",
+            "禁止",
+            "发现",
+            "显示",
+            "指出",
+            "发布",
+            "调查",
+            "实验",
+            "报道",
+            "准确率",
+            "订正率",
+            "自主解题",
+        )
+    )
+    return has_outcome
 
 
 def _source_display_title(source: Source) -> str:
@@ -132,13 +178,15 @@ def build_argument_bank_items(
     bank: dict[str, list[ArgumentBankItem]] = {"affirmative": [], "negative": []}
     for side in ("affirmative", "negative"):
         prefix = SIDE_PREFIX[side]
-        for index, claim in enumerate(claims.get(side, []), start=1):
+        accepted = 0
+        for claim in claims.get(side, []):
             text = re.sub(r"\s+", " ", (claim or "")).strip()
-            if not text:
+            if not text or not _is_factual_evidence(text):
                 continue
+            accepted += 1
             bank[side].append(
                 ArgumentBankItem(
-                    id=f"{prefix}-{index}",
+                    id=f"{prefix}-{accepted}",
                     side=side,  # type: ignore[arg-type]
                     title=short_argument_title(text),
                     claim=text,
@@ -194,6 +242,8 @@ def build_argument_bank_from_sources(topic: str, sources: list[Source]) -> dict[
         if _is_generic_system_source(source):
             continue
         text = f"{source.title} {source.excerpt}"
+        if not _is_factual_evidence(text, allow_rag_source=True):
+            continue
         sides = _source_sides(text)
         for side in sides:
             counters[side] += 1
@@ -239,13 +289,13 @@ def _extract_claims_from_message(content: str) -> list[str]:
     )
     quoted_claims = re.findall(r"[“\"《]([^”\"》]{8,120})[”\"》]", text)
     for quoted in quoted_claims:
-        if any(marker in quoted for marker in markers) or re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%", quoted):
+        if _is_factual_evidence(quoted) and (any(marker in quoted for marker in markers) or FACT_PATTERN.search(quoted)):
             claims.append(quoted.strip())
     for sentence in re.split(r"(?<=[。！？!?])", text):
         sentence = sentence.strip(" ，。；;")
         if len(sentence) < 18:
             continue
-        if any(marker in sentence for marker in markers) or re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%", sentence):
+        if _is_factual_evidence(sentence) and (any(marker in sentence for marker in markers) or FACT_PATTERN.search(sentence)):
             claims.append(sentence)
     deduped: list[str] = []
     seen: set[str] = set()

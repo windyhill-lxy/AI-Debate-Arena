@@ -1,209 +1,14 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { BookOpen, Download, Expand, Gavel, Globe, Lightbulb, Network, Users, X } from "lucide-react";
 import MarkdownBody from "../../../components/MarkdownBody.jsx";
 import OnlineSimplePanel from "../../../components/OnlineSimplePanel.jsx";
+import WorkflowGraph, { exportWorkflowSVG } from "./WorkflowGraph.jsx";
 import {
   displaySpeakerName,
   isTeamDiscussion,
   teamDiscussionSide,
 } from "../../../utils/debateDisplay.js";
 import { debaterLabel, resolveAvatar } from "../utils.js";
-
-const KIND_COLOR = {
-  input: "#334a8a", retrieval: "#2f5f48", llm: "#7c4a8a",
-  check: "#8a6a2f", action: "#4a6a8a", judge: "#8a2f2f", router: "#8a5a2f",
-};
-
-function escapeXml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function buildWorkflowLayout(columns) {
-  const NODE_W = 168;
-  const NODE_H = 74;
-  const ROW_GAP = 30;
-  const STAGE_GAP = 42;
-  const PAD_X = 36;
-  const PAD_Y = 36;
-  const STAGE_W = 132;
-  const CENTER_X = PAD_X + STAGE_W + 300;
-  const nodes = [];
-  const stages = [];
-  let y = PAD_Y + NODE_H / 2;
-  const xForNode = (node, index) => {
-    if (node.kind === "router" || node.kind === "check" || node.kind === "judge") return CENTER_X;
-    if (node.kind === "retrieval") return CENTER_X - 190;
-    if (node.kind === "llm") return CENTER_X + 190;
-    if (node.id?.includes("end") || node.id?.includes("final") || node.id?.includes("router")) return CENTER_X;
-    return CENTER_X + (index % 2 === 0 ? -92 : 92);
-  };
-  for (const [stageIndex, column] of (columns || []).entries()) {
-    const stageNodes = [...(column.nodes || [])].sort((a, b) => (a.lane || 0) - (b.lane || 0));
-    if (!stageNodes.length) continue;
-    const startY = y - NODE_H / 2;
-    for (const [nodeIndex, node] of stageNodes.entries()) {
-      nodes.push({
-        ...node,
-        stage: column.stage,
-        x: xForNode(node, nodeIndex),
-        y,
-        order: `${stageIndex + 1}.${nodeIndex + 1}`,
-        terminal: /结束|输出裁判报告|赛制环节推进/.test(node.label || ""),
-      });
-      y += NODE_H + ROW_GAP;
-    }
-    const endY = y - ROW_GAP - NODE_H / 2;
-    stages.push({
-      stage: column.stage,
-      index: stageIndex + 1,
-      x: PAD_X,
-      y: (startY + endY) / 2,
-      height: Math.max(NODE_H, endY - startY + NODE_H),
-    });
-    y += STAGE_GAP;
-  }
-  const width = 860;
-  const height = Math.max(320, y + PAD_Y);
-  return { nodes, stages, width, height, nodeWidth: NODE_W, nodeHeight: NODE_H };
-}
-
-function exportWorkflowSVG(columns, topic) {
-  const layout = buildWorkflowLayout(columns);
-  const { nodes, stages, width, height, nodeWidth, nodeHeight } = layout;
-
-  const paths = nodes.slice(1).map((n, i) => {
-    const prev = nodes[i];
-    const midY = (prev.y + n.y) / 2;
-    const label = ["router", "check", "judge"].includes(prev.kind) ? (n.x <= prev.x ? "yes" : "no") : "";
-    return `<path d="M${prev.x},${prev.y + nodeHeight / 2} V${midY} H${n.x} V${n.y - nodeHeight / 2}" fill="none" stroke="#444" stroke-width="1.4"/><text x="${(prev.x + n.x) / 2 + 4}" y="${midY - 5}" font-size="11" fill="#333" font-family="sans-serif">${label}</text>`;
-  });
-
-  const stageLabels = stages.map((stage) => `
-    <g transform="translate(${stage.x},${stage.y - stage.height / 2})">
-      <rect width="148" height="${stage.height}" rx="12" fill="#f3eadf" stroke="#dcc9b5"/>
-      <text x="14" y="28" font-size="12" fill="#8b6848" font-weight="700" font-family="sans-serif">${String(stage.index).padStart(2, "0")}</text>
-      <text x="14" y="50" font-size="13" fill="#2c241f" font-weight="700" font-family="sans-serif">${escapeXml(stage.stage)}</text>
-    </g>`);
-
-  const rects = nodes.map((n) => {
-    const color = KIND_COLOR[n.kind] || "#555";
-    const status = n.status === "done" ? "opacity:0.5" : n.status === "running" ? "filter:drop-shadow(0 0 4px #334a8a)" : "";
-    return `
-    <g transform="translate(${n.x - nodeWidth / 2},${n.y - nodeHeight / 2})" style="${status}">
-      <rect width="${nodeWidth}" height="${nodeHeight}" rx="${n.terminal ? 28 : 10}" fill="${color}18" stroke="${color}" stroke-width="1.5"/>
-      <text x="8" y="20" font-size="10" fill="${color}" font-weight="600" font-family="sans-serif">${n.kind?.toUpperCase()}</text>
-      <text x="${nodeWidth / 2}" y="44" font-size="13" fill="#2c241f" font-weight="700" text-anchor="middle" font-family="sans-serif">${escapeXml(n.label)}</text>
-      <text x="${nodeWidth / 2}" y="62" font-size="10" fill="#6b5a48" text-anchor="middle" font-family="sans-serif">${escapeXml(n.stage)}</text>
-    </g>`;
-  });
-
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-  <rect width="${width}" height="${height}" fill="#faf6ef"/>
-  <text x="28" y="24" font-size="14" fill="#2c241f" font-weight="700" font-family="sans-serif">LangGraph 赛程流程 · ${escapeXml(topic || '')}</text>
-  ${stageLabels.join("")}
-  ${paths.join("")}
-  ${rects.join("")}
-</svg>`;
-
-  const blob = new Blob([svg], { type: "image/svg+xml" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `debate-workflow-${(topic || "export").slice(0, 20).replace(/\s/g, "-")}.svg`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function WorkflowMindMap({ columns, interactive = false }) {
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const dragRef = useRef(null);
-  const { nodes, stages, width, height } = buildWorkflowLayout(columns);
-  const onWheel = (event) => {
-    if (!interactive) return;
-    event.preventDefault();
-    const next = Math.max(0.45, Math.min(2.4, scale + (event.deltaY > 0 ? -0.08 : 0.08)));
-    setScale(next);
-  };
-  const onPointerDown = (event) => {
-    if (!interactive || event.button !== 0) return;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    dragRef.current = { x: event.clientX, y: event.clientY, start: offset };
-  };
-  const onPointerMove = (event) => {
-    if (!dragRef.current) return;
-    const dx = event.clientX - dragRef.current.x;
-    const dy = event.clientY - dragRef.current.y;
-    setOffset({ x: dragRef.current.start.x + dx, y: dragRef.current.start.y + dy });
-  };
-  const stopDrag = () => {
-    dragRef.current = null;
-  };
-
-  return (
-    <div
-      className={`workflow-mindmap-shell ${interactive ? "workflow-mindmap-shell--interactive" : ""}`}
-      onWheel={onWheel}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={stopDrag}
-      onPointerCancel={stopDrag}
-    >
-      <div
-        className="workflow-mindmap"
-        style={{
-          "--workflow-width": `${width}px`,
-          transform: interactive ? `translate(${offset.x}px, ${offset.y}px) scale(${scale})` : undefined,
-          transformOrigin: "center center",
-        }}
-      >
-      <svg className="workflow-mindmap__links" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-        {nodes.slice(1).map((node, index) => {
-          const prev = nodes[index];
-          const midY = (prev.y + node.y) / 2;
-          const label = ["router", "check", "judge"].includes(prev.kind) ? (node.x <= prev.x ? "yes" : "no") : "";
-          return (
-            <g key={`${prev.id}-${node.id}`}>
-              <path d={`M ${prev.x} ${prev.y + 40} V ${midY} H ${node.x} V ${node.y - 40}`} />
-              {label && <text x={(prev.x + node.x) / 2 + 5} y={midY - 6}>{label}</text>}
-            </g>
-          );
-        })}
-      </svg>
-      <div className="workflow-mindmap__nodes" style={{ width, height }}>
-        {stages.map((stage) => (
-          <aside
-            key={stage.stage}
-            className="workflow-stage-label"
-            style={{ left: stage.x, top: stage.y, height: stage.height }}
-          >
-            <span>{String(stage.index).padStart(2, "0")}</span>
-            <strong>{stage.stage}</strong>
-          </aside>
-        ))}
-        {nodes.map((node) => (
-          <article
-            key={node.id}
-            className={`mind-node ${node.status} ${node.kind || ""} ${node.terminal ? "terminal" : ""}`}
-            style={{ left: node.x, top: node.y }}
-          >
-            <div className="mind-node__inner">
-              <span>{node.order}</span>
-              <strong>{node.label}</strong>
-              <p>{node.stage}</p>
-            </div>
-          </article>
-        ))}
-      </div>
-      </div>
-    </div>
-  );
-}
 
 function WorkflowGraphModal({ columns, topic, onClose }) {
   return (
@@ -217,7 +22,7 @@ function WorkflowGraphModal({ columns, topic, onClose }) {
           <X size={18} /> 关闭
         </button>
       </div>
-      <WorkflowMindMap columns={columns} interactive />
+      <WorkflowGraph columns={columns} interactive />
     </div>
   );
 }
@@ -464,7 +269,7 @@ export default function DebateRightRail({
 
               {activeTab === "graph" && (
                 <section className="panel graph-panel">
-                  <WorkflowMindMap columns={workflowColumns} />
+                  <WorkflowGraph columns={workflowColumns} />
                 </section>
               )}
             </div>

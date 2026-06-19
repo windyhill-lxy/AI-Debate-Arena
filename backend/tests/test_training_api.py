@@ -106,9 +106,46 @@ async def test_opening_training_auto_improve_uses_separate_draft_and_review_call
     assert response.status_code == 200
     text = body.decode("utf-8")
     assert "opening_training_auto_improve_stream" in operations
-    assert "opening_training_review" in operations
+    assert "opening_training_review_stream" in operations
     assert "本轮审核" in text
     assert len(text[text.find("本轮审核"):]) > 120
+
+
+@pytest.mark.asyncio
+async def test_opening_training_streams_reviewer_delta_before_review_done(client: AsyncClient, monkeypatch) -> None:
+    async def fake_stream(*_args, **kwargs):
+        operation = kwargs.get("operation", "")
+        if operation == "opening_training_review_stream":
+            yield "本轮审核：尚未达到正式一辩标准。"
+            yield "结构上需要补足定义、判断标准和三条论证链。"
+            yield "下一版必须补充可核验事实。"
+            return
+        yield "主席、评委，大家好。我方认为人工智能会提升学习能力。"
+        yield "第一，AI 能即时反馈。第二，AI 能提供材料。第三，AI 能帮助复盘。"
+        yield "综上，我方认为它有助于学习。"
+
+    monkeypatch.setattr("app.services.training.chat_completion_stream", fake_stream)
+
+    async with client.stream(
+        "POST",
+        "/api/debates/opening-training/auto-improve/stream",
+        json={
+            "topic": "人工智能是否会提升青少年的综合学习能力",
+            "side": "affirmative",
+            "max_rounds": 1,
+        },
+    ) as response:
+        body = await response.aread()
+
+    assert response.status_code == 200
+    text = body.decode("utf-8")
+    review_start = text.find('"type": "review_start"')
+    review_delta = text.find('"type": "review_delta"')
+    review_done = text.find('"type": "review"')
+    assert review_start != -1
+    assert review_delta != -1
+    assert review_done != -1
+    assert review_start < review_delta < review_done
 
 
 @pytest.mark.asyncio

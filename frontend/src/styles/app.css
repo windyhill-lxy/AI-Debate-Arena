@@ -2285,6 +2285,164 @@ button.active,
   align-items: center;
 }
 
+.workflow-flow {
+  width: 100%;
+  height: min(58vh, 520px);
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid rgba(72, 54, 41, 0.1);
+  border-radius: 10px;
+  background: #fbf7ef;
+}
+
+.workflow-flow--interactive {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.workflow-flow .react-flow__pane {
+  cursor: grab;
+}
+
+.workflow-flow .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.workflow-flow .react-flow__edge-path {
+  stroke: rgba(50, 45, 39, 0.78);
+}
+
+.workflow-flow .react-flow__edge-textbg {
+  fill: rgba(255, 250, 242, 0.92);
+}
+
+.workflow-flow .react-flow__edge-text {
+  fill: #433a32;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflow-flow-node {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid rgba(57, 50, 43, 0.68);
+  border-radius: 10px;
+  color: #2c241f;
+  text-align: center;
+  box-shadow: 0 14px 30px rgba(54, 42, 32, 0.08);
+}
+
+.workflow-flow-node__inner {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.workflow-flow-node--input {
+  background: #dbe8ff;
+}
+
+.workflow-flow-node--retrieval {
+  background: #def4e8;
+}
+
+.workflow-flow-node--llm {
+  background: #eee2ff;
+}
+
+.workflow-flow-node--action {
+  background: #ffe1a8;
+}
+
+.workflow-flow-node--terminal {
+  border-radius: 999px;
+  background: #f8b03b;
+}
+
+.workflow-flow-node--router,
+.workflow-flow-node--check,
+.workflow-flow-node--judge {
+  transform: rotate(45deg);
+  border-radius: 8px;
+  background: #4b93df;
+  color: #fff;
+}
+
+.workflow-flow-node--check {
+  background: #7ed321;
+}
+
+.workflow-flow-node--judge {
+  background: #e77f90;
+}
+
+.workflow-flow-node--router .workflow-flow-node__inner,
+.workflow-flow-node--check .workflow-flow-node__inner,
+.workflow-flow-node--judge .workflow-flow-node__inner {
+  transform: rotate(-45deg);
+  width: 92px;
+  gap: 3px;
+}
+
+.workflow-flow-node.running {
+  outline: 4px solid rgba(68, 104, 190, 0.2);
+  box-shadow: 0 0 0 7px rgba(68, 104, 190, 0.08), 0 18px 32px rgba(54, 42, 32, 0.12);
+}
+
+.workflow-flow-node.done {
+  opacity: 0.52;
+}
+
+.workflow-flow-node span {
+  color: rgba(84, 67, 52, 0.72);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.workflow-flow-node--router span,
+.workflow-flow-node--check span,
+.workflow-flow-node--judge span {
+  display: none;
+}
+
+.workflow-flow-node strong {
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.workflow-flow-node--router strong,
+.workflow-flow-node--check strong,
+.workflow-flow-node--judge strong {
+  display: -webkit-box;
+  font-size: 13px;
+  line-height: 1.25;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.workflow-flow-node small {
+  max-width: 100%;
+  color: rgba(82, 67, 54, 0.78);
+  font-size: 11px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.workflow-flow-node--router small,
+.workflow-flow-node--check small,
+.workflow-flow-node--judge small {
+  display: none;
+}
+
 .workflow-modal {
   position: fixed;
   inset: 18px;
