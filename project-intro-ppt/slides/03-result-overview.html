@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>项目结果总览</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <section class="slide">
+    <div class="masthead">
+      <span>Result</span>
+      <span>完整系统而非单点 Demo</span>
+    </div>
+
+    <div class="kicker">项目已经做成什么</div>
+    <h2>AI 辩论场把“辩题输入”到“裁判报告”的全链路跑通。</h2>
+
+    <div class="grid-2" style="margin-top: 54px;">
+      <div class="body-copy">
+        <p>
+          系统支持 AI 自主辩论、用户加入正方、用户加入反方和多人联机模式。创建房间后，
+          后端按正式赛程推进，前端实时呈现三栏辩论室、发言流、角色舞台、进度条和工作流树。
+        </p>
+        <p>
+          每次发言并不是一次普通 LLM 调用，而是经过 RAG 检索、策略规划、方向判断、反思生成、
+          事实核查、发布和裁判评分的回合循环。赛后可以导出 Markdown/PDF 逐字稿，并通过只读回放分享。
+        </p>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat panel"><strong>9</strong><span>正反各四辩 + 紫苑裁判，形成完整辩论角色阵容。</span></div>
+        <div class="stat panel"><strong>40</strong><span>前端展示工作流节点，覆盖准备、攻防、总结与裁决。</span></div>
+        <div class="stat panel"><strong>9</strong><span>LangGraph 运行时节点，构成单回合智能体内核。</span></div>
+        <div class="stat panel"><strong>4</strong><span>AI 自主、人机正方、人机反方、联机多人四类使用场景。</span></div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

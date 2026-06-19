@@ -1,0 +1,62 @@
+{
+  "name": "ai-debate-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI 辩论场桌面程序",
+  "author": "AI Debate Arena",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --dir",
+    "build:win:portable": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.aidebate.arena.desktop",
+    "productName": "AI辩论场",
+    "asar": true,
+    "directories": {
+      "output": "../release/dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../release/staging/app-core",
+        "to": "app-core",
+        "filter": ["**/*"]
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "../release/staging/app-core/.env.example",
+        "to": ".env.example"
+      },
+      {
+        "from": "../release/使用说明.txt",
+        "to": "使用说明.txt"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "AI辩论场-${version}-win-${arch}.${ext}",
+      "signAndEditExecutable": false,
+      "signDlls": false
+    },
+    "portable": {
+      "artifactName": "AI辩论场-${version}-便携单文件.${ext}"
+    }
+  }
+}

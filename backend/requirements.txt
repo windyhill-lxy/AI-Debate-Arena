@@ -1,0 +1,16 @@
+fastapi
+python-multipart
+uvicorn[standard]
+pydantic-settings
+motor
+redis
+langgraph
+langchain-core
+python-dotenv
+httpx
+pyyaml
+pytest
+pytest-asyncio
+fpdf2>=2.8.0
+
+qrcode[pil]

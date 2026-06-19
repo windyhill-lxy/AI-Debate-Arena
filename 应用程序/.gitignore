@@ -1,0 +1,7 @@
+node_modules/
+assets/frontend-dist/*
+!assets/frontend-dist/.gitkeep
+release/dist/
+release/staging/
+release/AI辩论场/
+release/*.exe

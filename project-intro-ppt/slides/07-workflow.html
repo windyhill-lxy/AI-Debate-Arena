@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>工作流内核</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <section class="slide">
+    <div class="masthead">
+      <span>Workflow</span>
+      <span>展示工作流与运行时内核</span>
+    </div>
+
+    <div class="kicker">核心工作流</div>
+    <h2>前端看见 40 个节点，后端真正执行 9 个节点；两层共同解释系统如何思考。</h2>
+
+    <div class="swimlane">
+      <div class="lane">
+        <h3>展示层：40 节点</h3>
+        <p>
+          用工作流树把赛前准备、立论前准备、驳论检索、自由辩策略、
+          总结陈词和终局裁决展开，让观众看到“当前在哪一步”。
+        </p>
+      </div>
+      <div class="lane">
+        <h3>执行层：LangGraph 9 节点</h3>
+        <p>
+          每个 AI 回合走 RAG 检索、策略规划、方向判断、反思、发言生成、
+          事实核查、发布消息、裁判评分和回合路由。
+        </p>
+      </div>
+      <div class="lane">
+        <h3>赛程层：正式 4v4</h3>
+        <p>
+          YAML 模板定义立论、攻辩、盘问、自由辩、总结与裁判终局。
+          它让系统按真实辩论节奏推进，而不是让 AI 自由聊天。
+        </p>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

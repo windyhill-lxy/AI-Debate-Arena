@@ -1,0 +1,385 @@
+# 标准 4v4 赛程（可替换为其它 YAML 模板）
+name: formal_4v4
+title: 标准 4v4 完整赛制
+description: 立论、盘问、驳论、自由辩、总结陈词与裁判终局，适合正式展示。
+segments:
+  - id: pre_match_opening
+    phase: pre_match
+    label: 赛前准备 · 主持开场
+    rules: 仅一次主持：简短欢迎→辩题争点与胜负标准→正反持方与一至四辩分工→宣布进入立论前准备；勿重复欢迎辞或全文复述辩题。
+    seconds: 90
+    speaker_side: judge
+    section: pre
+  - id: opening_task_assign
+    phase: opening_prep
+    label: 立论前准备 · 一辩任务分配
+    rules: 一辩向队友分配定义、论点、论据和风险回应任务。
+    seconds: 45
+    speaker_side: affirmative
+    speaker_position: 1
+    section: pre
+  - id: neg_opening_task_assign
+    phase: opening_prep
+    label: 立论前准备 · 反方一辩任务分配
+    rules: 反方一辩向队友分配定义、论点、论据和风险回应任务。
+    seconds: 45
+    speaker_side: negative
+    speaker_position: 1
+    section: pre
+  - id: opening_task_check
+    phase: opening_prep
+    label: 立论前准备 · 大模型判断:任务合理性
+    rules: 检查任务是否覆盖定义、论证链、证据和反方可能攻击点。
+    seconds: 30
+    speaker_side: judge
+    section: pre
+  - id: opening_rag
+    phase: opening_prep
+    label: 立论前准备 · RAG检索:立论论据库
+    rules: 检索双方可用的立论事实、案例和通用标准。
+    seconds: 30
+    speaker_side: judge
+    section: pre
+  - id: aff_opening_discussion
+    phase: opening_prep
+    label: 立论前准备 · 正方队内讨论(立论)
+    rules: 正方队内整合论点、分配证据并排除无来源断言。
+    seconds: 45
+    speaker_side: affirmative
+    speaker_position: 1
+    section: pre
+  - id: neg_opening_discussion
+    phase: opening_prep
+    label: 立论前准备 · 反方队内讨论(立论)
+    rules: 反方队内整合论点、分配证据并排除无来源断言。
+    seconds: 45
+    speaker_side: negative
+    speaker_position: 1
+    section: pre
+  - id: point_split
+    phase: opening_prep
+    label: 立论前准备 · 论点分工确认
+    rules: 确认各辩手负责的主论点和攻防位置。
+    seconds: 30
+    speaker_side: judge
+    section: pre
+  - id: evidence_split
+    phase: opening_prep
+    label: 立论前准备 · 论据分配确认
+    rules: 确认每个论点对应的事实、案例和可验证来源。
+    seconds: 30
+    speaker_side: judge
+    section: pre
+  - id: opening_strategy_lock
+    phase: opening_prep
+    label: 立论前准备 · 立论策略锁定
+    rules: 锁定开篇标准、核心论点和表达节奏。
+    seconds: 30
+    speaker_side: judge
+    section: pre
+  - id: aff_opening_1
+    phase: opening_statement
+    label: 正方一辩立论
+    rules: 定义辩题、提出分论点，搭建正方论证框架。
+    seconds: 180
+    speaker_side: affirmative
+    speaker_position: 1
+  - id: aff_opening_rag
+    phase: argument_review
+    label: 立论环节 · RAG检索:增强论点
+    rules: 围绕正方立论检索增强论据和潜在漏洞。
+    seconds: 25
+    speaker_side: judge
+  - id: aff_opening_strength
+    phase: argument_review
+    label: 立论环节 · 大模型判断:论点强度
+    rules: 判断正方论点强度、证据充分性和可攻击点。
+    seconds: 25
+    speaker_side: judge
+  - id: neg_opening_1
+    phase: opening_statement
+    label: 反方一辩立论
+    rules: 定义辩题、提出分论点，搭建反方论证框架。
+    seconds: 180
+    speaker_side: negative
+    speaker_position: 1
+  - id: neg_opening_rag
+    phase: argument_review
+    label: 立论环节 · RAG检索:增强论点
+    rules: 围绕反方立论检索增强论据和潜在漏洞。
+    seconds: 25
+    speaker_side: judge
+  - id: neg_opening_strength
+    phase: argument_review
+    label: 立论环节 · 大模型判断:论点强度
+    rules: 判断反方论点强度、证据充分性和可攻击点。
+    seconds: 25
+    speaker_side: judge
+  - id: aff_cross_2
+    phase: cross_examination
+    label: 攻辩 · 正方二辩提问
+    rules: 攻方提问30秒：每次只问一个问题，以「请问」开头；不得自答。
+    seconds: 30
+    speaker_side: affirmative
+    speaker_position: 2
+  - id: neg_cross_answer_2
+    phase: cross_examination
+    label: 攻辩 · 反方二辩回应
+    rules: 辩方回答60秒：正面回应，不得反问或回避。
+    seconds: 60
+    speaker_side: negative
+    speaker_position: 2
+  - id: neg_cross_2
+    phase: cross_examination
+    label: 攻辩 · 反方二辩提问
+    rules: 攻方提问30秒：每次只问一个问题，以「请问」开头；不得自答。
+    seconds: 30
+    speaker_side: negative
+    speaker_position: 2
+  - id: aff_cross_answer_2
+    phase: cross_examination
+    label: 攻辩 · 正方二辩回应
+    rules: 辩方回答60秒：正面回应，不得反问或回避。
+    seconds: 60
+    speaker_side: affirmative
+    speaker_position: 2
+  - id: aff_cross_3
+    phase: cross_examination
+    label: 攻辩 · 正方三辩提问
+    rules: 攻方提问30秒：每次只问一个问题，以「请问」开头；不得自答。
+    seconds: 30
+    speaker_side: affirmative
+    speaker_position: 3
+  - id: neg_cross_answer_3
+    phase: cross_examination
+    label: 攻辩 · 反方二辩回应
+    rules: 辩方回答60秒：正面回应，不得反问或回避。
+    seconds: 60
+    speaker_side: negative
+    speaker_position: 2
+  - id: neg_cross_3
+    phase: cross_examination
+    label: 攻辩 · 反方三辩提问
+    rules: 攻方提问30秒：每次只问一个问题，以「请问」开头；不得自答。
+    seconds: 30
+    speaker_side: negative
+    speaker_position: 3
+  - id: aff_cross_answer_3
+    phase: cross_examination
+    label: 攻辩 · 正方二辩回应
+    rules: 辩方回答60秒：正面回应，不得反问或回避。
+    seconds: 60
+    speaker_side: affirmative
+    speaker_position: 2
+  - id: aff_summary_1
+    phase: segment_summary
+    label: 攻辩小结 · 正方一辩
+    rules: 针对攻辩阶段态势作小结，严禁脱离实际情况背稿。
+    seconds: 120
+    speaker_side: affirmative
+    speaker_position: 1
+  - id: aff_summary_fact
+    phase: argument_review
+    label: 攻辩环节 · RAG检索:事实核查
+    rules: 核查正方小结中的事实和引用风险。
+    seconds: 25
+    speaker_side: judge
+  - id: neg_summary_1
+    phase: segment_summary
+    label: 攻辩小结 · 反方一辩
+    rules: 针对攻辩阶段态势作小结，严禁脱离实际情况背稿。
+    seconds: 120
+    speaker_side: negative
+    speaker_position: 1
+  - id: neg_summary_fact
+    phase: argument_review
+    label: 攻辩环节 · RAG检索:事实核查
+    rules: 核查反方小结中的事实和引用风险。
+    seconds: 25
+    speaker_side: judge
+  - id: free_pause
+    phase: free_prep
+    label: 自由辩论前准备 · 暂停计时
+    rules: 暂停计时并汇总双方当前战场。
+    seconds: 20
+    speaker_side: judge
+  - id: free_predict_rag
+    phase: free_prep
+    label: 自由辩论前准备 · RAG检索:对方论点预测
+    rules: 预测对方自由辩论可能主攻方向。
+    seconds: 30
+    speaker_side: judge
+  - id: aff_free_team_discussion
+    phase: free_prep
+    label: 自由辩论前准备 · 正方队内讨论(自由辩)
+    rules: 正方整理短句攻防、接力顺序和兜底回应。
+    seconds: 45
+    speaker_side: affirmative
+    speaker_position: 3
+  - id: neg_free_team_discussion
+    phase: free_prep
+    label: 自由辩论前准备 · 反方队内讨论(自由辩)
+    rules: 反方整理短句攻防、接力顺序和兜底回应。
+    seconds: 45
+    speaker_side: negative
+    speaker_position: 3
+  - id: free_strategy_adjust
+    phase: free_prep
+    label: 自由辩论前准备 · 攻防策略调整
+    rules: 确定主攻点、防守底线和换位节奏。
+    seconds: 30
+    speaker_side: judge
+  - id: free_case_rag
+    phase: free_prep
+    label: 自由辩论前准备 · RAG检索:攻防案例库
+    rules: 检索自由辩论可快速引用的案例。
+    seconds: 30
+    speaker_side: judge
+  - id: free_strategy_check
+    phase: free_prep
+    label: 自由辩论前准备 · 大模型判断:策略可行性
+    rules: 判断策略是否可执行、是否存在明显证据漏洞。
+    seconds: 25
+    speaker_side: judge
+  - id: free_temp_roles
+    phase: free_prep
+    label: 自由辩论前准备 · 角色临时分工
+    rules: 确认谁主攻、谁补证、谁收束。
+    seconds: 25
+    speaker_side: judge
+  - id: free_ready
+    phase: free_prep
+    label: 自由辩论前准备 · 准备就绪
+    rules: 宣布进入直接交替输出。
+    seconds: 15
+    speaker_side: judge
+  - id: free_debate_pool
+    phase: free_debate
+    label: 自由辩论 · 双方各4分钟
+    rules: 正方先发言后交替；每次只说一句话；一方落座后暂停本方计时，另一方继续。
+    seconds: 30
+    speaker_side: affirmative
+    speaker_position: 1
+  - id: free_realtime_rag
+    phase: free_review
+    label: 自由辩论环节 · RAG检索:实时反驳
+    rules: 汇总自由辩论中可继续追打的事实点。
+    seconds: 25
+    speaker_side: judge
+  - id: free_continue_check
+    phase: free_review
+    label: 自由辩论环节 · 大模型判断:是否继续
+    rules: 根据战场热度、剩余轮次和重复度判断结束。
+    seconds: 25
+    speaker_side: judge
+  - id: free_end
+    phase: free_review
+    label: 自由辩论环节 · 结束自由辩论
+    rules: 裁判宣布自由辩论结束，进入总结准备。
+    seconds: 15
+    speaker_side: judge
+  - id: closing_receive
+    phase: closing_prep
+    label: 总结陈词前准备 · 四辩接收汇总
+    rules: 四辩接收全场论点、漏洞和得分摘要。
+    seconds: 35
+    speaker_side: judge
+  - id: closing_knowledge_rag
+    phase: closing_prep
+    label: 总结陈词前准备 · RAG检索:全场知识点
+    rules: 汇总全场可验证事实和关键交锋。
+    seconds: 30
+    speaker_side: judge
+  - id: aff_closing_discussion
+    phase: closing_prep
+    label: 总结陈词前准备 · 正方队内讨论(总结)
+    rules: 正方确认总结陈词中的胜负标准和价值升华。
+    seconds: 40
+    speaker_side: affirmative
+    speaker_position: 4
+  - id: neg_closing_discussion
+    phase: closing_prep
+    label: 总结陈词前准备 · 反方队内讨论(总结)
+    rules: 反方确认总结陈词中的胜负标准和价值升华。
+    seconds: 40
+    speaker_side: negative
+    speaker_position: 4
+  - id: closing_frame
+    phase: closing_prep
+    label: 总结陈词前准备 · 总结框架确认
+    rules: 锁定四辩总结结构：回应、比较、升华。
+    seconds: 25
+    speaker_side: judge
+  - id: closing_neg4
+    phase: closing
+    label: 反方四辩总结
+    rules: 升华主题，梳理全场交锋，重申反方胜负标准。
+    seconds: 240
+    speaker_side: negative
+    speaker_position: 4
+  - id: closing_neg_rag
+    phase: closing_review
+    label: 总结陈词环节 · RAG检索:总结范本
+    rules: 检索反方总结结构范本和表达模板。
+    seconds: 25
+    speaker_side: judge
+  - id: closing_neg_quality
+    phase: closing_review
+    label: 总结陈词环节 · 大模型判断:总结质量
+    rules: 判断反方总结是否覆盖关键战场。
+    seconds: 25
+    speaker_side: judge
+  - id: closing_aff4
+    phase: closing
+    label: 正方四辩总结
+    rules: 升华主题，梳理全场交锋，重申正方胜负标准。
+    seconds: 240
+    speaker_side: affirmative
+    speaker_position: 4
+  - id: closing_aff_rag
+    phase: closing_review
+    label: 总结陈词环节 · RAG检索:总结范本
+    rules: 检索正方总结结构范本和表达模板。
+    seconds: 25
+    speaker_side: judge
+  - id: closing_aff_quality
+    phase: closing_review
+    label: 总结陈词环节 · 大模型判断:总结质量
+    rules: 判断正方总结是否覆盖关键战场。
+    seconds: 25
+    speaker_side: judge
+  - id: score_summary
+    phase: post_match
+    label: 裁判最终裁决 · 汇总全程得分
+    rules: 汇总双方每轮逻辑、证据、表达与幻觉扣分。
+    seconds: 35
+    speaker_side: judge
+    section: post
+  - id: judge_criteria_rag
+    phase: post_match
+    label: 裁判最终裁决 · RAG检索:裁判准则库
+    rules: 检索评分准则、扣分规则和最佳辩手标准。
+    seconds: 30
+    speaker_side: judge
+    section: post
+  - id: judge_comment
+    phase: post_match
+    label: 裁判最终裁决 · 大模型评语生成
+    rules: 生成双方表现评语和关键战场复盘。
+    seconds: 45
+    speaker_side: judge
+    section: post
+  - id: winner_decision
+    phase: post_match
+    label: 裁判最终裁决 · 判定胜负
+    rules: 结合得分与战场控制力判定胜负。
+    seconds: 35
+    speaker_side: judge
+    section: post
+  - id: post_verdict
+    phase: post_match
+    label: 裁判最终裁决 · 输出裁判报告
+    rules: 输出胜负、分项得分、最佳辩手和改进建议。
+    seconds: 120
+    speaker_side: judge
+    section: post

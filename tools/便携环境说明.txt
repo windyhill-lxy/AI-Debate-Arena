@@ -1,0 +1,16 @@
+本目录已内置便携运行时（若已执行过 download-portable.ps1）：
+
+  tools\node\node.exe     Node.js v22（LTS）
+  tools\python\python.exe Python 3.12
+
+项目启动时会自动使用上述路径（见 scripts\env.bat）。
+
+【重新下载 / 换电脑后恢复】
+在项目根目录 PowerShell 执行：
+  .\download-portable.ps1
+
+【学校 U 盘】
+把整个 AI辩论项目 复制到 U 盘即可，tools、node_modules、.env 一并带走。
+
+【体积说明】
+tools\node 与 tools\python 合计约 200MB+，已在 .gitignore 中忽略，勿提交 Git。

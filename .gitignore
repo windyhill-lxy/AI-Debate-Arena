@@ -1,0 +1,43 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+frontend/.env*
+
+# Portable runtimes and dependencies
+tools/python/
+tools/node/
+backend/.venv/
+frontend/node_modules/
+应用程序/electron/node_modules/
+
+# Build outputs and packaged desktop releases
+frontend/dist/
+应用程序/electron/dist/
+应用程序/release/dist/
+应用程序/release/staging/
+应用程序/release/AI辩论场/
+应用程序/release/*.exe
+应用程序/assets/frontend-dist/*
+!应用程序/assets/frontend-dist/.gitkeep
+
+# Runtime data, logs, caches
+logs/
+data/*.sqlite
+data/*.jsonl
+backend/data/
+*.log
+.pytest_cache/
+backend/.pytest_cache/
+frontend/.vite/
+
+# Local editor and agent caches
+.cursor/
+.claude/
+.agents/
+backend/.agents/
+
+# Python cache files
+__pycache__/
+**/__pycache__/
+*.pyc

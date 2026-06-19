@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>跨端与部署</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <section class="slide">
+    <div class="masthead">
+      <span>Deployment</span>
+      <span>比赛现场与学校机房可运行</span>
+    </div>
+
+    <div class="kicker">跨端运行</div>
+    <h2>同一套系统覆盖电脑主持、手机加入、桌面发行和弱环境演示。</h2>
+
+    <div class="architecture">
+      <div class="arch-layer panel">
+        <h3>电脑端</h3>
+        <p>
+          浏览器访问 `127.0.0.1:5173`，后端默认 `9000`。
+          主持人可创建房间、管理赛程、观察进度，并在管理页查看存储与运行状态。
+        </p>
+      </div>
+      <div class="arch-layer panel">
+        <h3>手机端</h3>
+        <p>
+          响应式 Web 布局支持同 WiFi 加入，宾客端使用竖屏样式。
+          联机席位、在线状态和发言同步由 WebSocket 维护。
+        </p>
+      </div>
+      <div class="arch-layer panel">
+        <h3>发行版</h3>
+        <p>
+          Electron 桌面壳复用 Web UI；便携 Python/Node 与启动脚本支持 U 盘部署。
+          MongoDB/Redis 未启动时可内存降级，先保证演示链路跑通。
+        </p>
+      </div>
+    </div>
+
+    <p class="large-note">
+      这部分创新来自现实约束：真正的学生项目不只要“能开发”，还要在比赛现场、学校电脑和同学手机上能打开。
+    </p>
+  </section>
+</body>
+</html>

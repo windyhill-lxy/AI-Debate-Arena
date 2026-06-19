@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>LangGraph 单回合</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <section class="slide">
+    <div class="masthead">
+      <span>Agentic Loop</span>
+      <span>单回合如何产生一段发言</span>
+    </div>
+
+    <div class="kicker">运行时内核</div>
+    <h2>一段发言要经过检索、判断、反思与核查，不是直接把辩题丢给模型。</h2>
+
+    <div class="flow-line" style="margin-top: 72px;">
+      <div class="flow-node"><b>RAG 检索</b><span>从辩题资料、内置知识和历史上下文中取当前可用依据。</span></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><b>策略规划</b><span>根据赛程阶段选择立论、反驳、盘问或总结的表达目标。</span></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><b>方向判断</b><span>用大模型判断本轮发言任务是否合理，避免偏离战场。</span></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><b>生成与反思</b><span>先形成草稿与内部策略，再流式输出给前端。</span></div>
+      <div class="arrow">→</div>
+      <div class="flow-node"><b>核查与评分</b><span>事实核查失败会触发重写；通过后裁判记录分数与风险。</span></div>
+    </div>
+
+    <p class="large-note">
+      这个回合循环让系统具备“可被追问”的智能：如果发言可信，能够说明依据；如果有风险，能够在发布前或评分时被发现。
+    </p>
+  </section>
+</body>
+</html>
