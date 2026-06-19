@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.models import DebateMode, DebateState, DebateTiming, DebateVisibility, Source, default_agents, workflow_template
+from app.models import ArgumentBankItem, DebateMode, DebateState, DebateTiming, DebateVisibility, Source, default_agents, workflow_template
 from app.services.debate_schedule import apply_segment, get_segment, init_schedule
 from app.services.debate_schedule_meta import is_procedural_segment
 from app.services.message_visibility import is_internal_message, is_public_message
@@ -90,6 +90,31 @@ async def test_rag_retrieve_populates_argument_bank(monkeypatch, mock_llm_stream
     assert result.argument_bank["affirmative"]
     assert result.argument_bank["negative"]
     assert result.argument_bank["affirmative"][0].title
+
+
+@pytest.mark.asyncio
+async def test_rag_retrieve_keeps_adding_new_materials_after_argument_bank_exists(monkeypatch, mock_llm_stream: None) -> None:
+    debate = _debate()
+    for index in range(30):
+        seg = get_segment(debate, index)
+        if seg and seg.speaker_side == "negative":
+            apply_segment(debate, index)
+            break
+    debate.argument_bank_locked = True
+    debate.argument_bank["negative"].append(
+        ArgumentBankItem(id="NEG-1", side="negative", title="旧资料", claim="旧资料", source="预置资料")
+    )
+
+    monkeypatch.setattr(
+        "app.workflow.debate_graph.retrieve_sources",
+        lambda *_args, **_kwargs: [
+            Source(title="韩国AI作业禁令", excerpt="韩国教育部门限制小学生用 AI 完成家庭作业，担心主动思考下降。"),
+        ],
+    )
+
+    result = await debate_graph.run_turn_streaming(debate)
+
+    assert any(item.title == "韩国AI作业禁令" for item in result.argument_bank["negative"])
 
 
 @pytest.mark.asyncio

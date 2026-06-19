@@ -38,6 +38,28 @@ async def test_create_and_get_debate(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_debate_materials_immediately_populate_argument_bank(client: AsyncClient) -> None:
+    create = await client.post(
+        "/api/debates",
+        json={
+            "topic": "人工智能是否会提升青少年的综合学习能力",
+            "mode": "ai_autonomous",
+            "schedule_template": "formal_4v4",
+            "materials": [
+                {
+                    "title": "韩国AI作业禁令",
+                    "content": "2024年韩国教育部门限制小学生用 AI 完成家庭作业，担心学生主动思考能力下降。",
+                }
+            ],
+        },
+    )
+
+    assert create.status_code == 200
+    debate = create.json()
+    assert any(item["title"] == "韩国AI作业禁令" for item in debate["argument_bank"]["negative"])
+
+
+@pytest.mark.asyncio
 async def test_create_user_affirmative_mode(client: AsyncClient) -> None:
     create = await client.post(
         "/api/debates",

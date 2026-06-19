@@ -33,7 +33,7 @@ from app.models import (
 )
 from app.services.auto_runner import resume_auto, start_auto, stop_auto
 from app.services.asr import ASRError, recognize_speech
-from app.services.argument_bank import enforce_argument_citations
+from app.services.argument_bank import add_message_arguments_to_bank, add_sources_to_argument_bank, enforce_argument_citations
 from app.services.camera_speech_scoring import apply_camera_speech_score
 from app.services.changelog import append_changelog, ensure_project_index
 from app.services.confidence_monitor_manager import manager as confidence_manager
@@ -467,6 +467,7 @@ async def _accept_user_message(
                 )
 
     debate.messages.append(message)
+    add_message_arguments_to_bank(debate, message)
     debate.awaiting_user = False
     clear_user_wait(debate)
     debate.user_draft = ""
@@ -701,6 +702,15 @@ async def create_debate(payload: DebateCreate) -> dict:
     _lock_initial_rules(debate)
     init_schedule(debate)
     debate.schedule = build_schedule_status(debate.schedule_index, debate.schedule_template)
+    for material in payload.materials:
+        if not material.content.strip():
+            continue
+        material_sources = ingest_materials(
+            debate_id=debate.id,
+            title=material.title or "辩题参考资料",
+            content=material.content,
+        )
+        add_sources_to_argument_bank(debate, material_sources)
 
     if payload.mode == DebateMode.online_match:
         debate.online_ready = False
@@ -739,9 +749,7 @@ async def create_debate(payload: DebateCreate) -> dict:
     debate = await _persist_and_broadcast(debate, create_event)
     if debate.auto_running:
         start_auto(debate.id)
-    asyncio.create_task(
-        _index_debate_materials_background(payload.topic, debate.id, list(payload.materials))
-    )
+    asyncio.create_task(_index_debate_materials_background(payload.topic, debate.id, []))
 
     try:
         from app.services.usage_log import record_debate_created
@@ -1107,10 +1115,16 @@ async def upload_debate_materials(
         content=payload.content,
         replace=payload.replace,
     )
+    debate = _state_from_doc(doc)
+    added = add_sources_to_argument_bank(debate, sources)
+    debate.updated_at = utc_now()
+    await save_debate(debate.model_dump(mode="json"))
+    await cache_set(f"debate:{debate.id}", debate.model_dump(mode="json"))
     return {
         "status": "ok",
         "chunks": len(sources),
         "sources": [s.model_dump() for s in sources],
+        "argument_bank_added": added,
     }
 
 
@@ -1139,11 +1153,17 @@ async def upload_debate_materials_file(
         content=content,
         replace=replace,
     )
+    debate = _state_from_doc(doc)
+    added = add_sources_to_argument_bank(debate, sources)
+    debate.updated_at = utc_now()
+    await save_debate(debate.model_dump(mode="json"))
+    await cache_set(f"debate:{debate.id}", debate.model_dump(mode="json"))
     return {
         "status": "ok",
         "filename": file.filename,
         "chunks": len(sources),
         "sources": [s.model_dump() for s in sources],
+        "argument_bank_added": added,
     }
 
 

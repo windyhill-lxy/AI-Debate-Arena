@@ -1,6 +1,13 @@
-from app.models import ArgumentBankItem, DebateMode, DebateState, DebateTiming, DebateVisibility, default_agents, workflow_template
+from app.models import ArgumentBankItem, DebateMessage, DebateMode, DebateState, DebateTiming, DebateVisibility, default_agents, workflow_template
 from app.models import Source
-from app.services.argument_bank import add_argument_items, build_argument_bank_from_sources, build_argument_bank_items, enforce_argument_citations
+from app.services.argument_bank import (
+    add_argument_items,
+    add_message_arguments_to_bank,
+    add_sources_to_argument_bank,
+    build_argument_bank_from_sources,
+    build_argument_bank_items,
+    enforce_argument_citations,
+)
 
 
 def _debate() -> DebateState:
@@ -81,3 +88,42 @@ def test_build_argument_bank_from_sources_uses_natural_titles() -> None:
     assert bank["affirmative"][0].title
     assert bank["negative"][0].title
     assert "未找到" not in bank["affirmative"][0].claim
+
+
+def test_sources_incrementally_enter_argument_bank_after_initial_lock() -> None:
+    debate = _debate()
+    first = [Source(title="即时反馈资料", excerpt="AI 个性化反馈帮助学生发现知识漏洞。")]
+    second = [Source(title="韩国AI作业禁令", excerpt="2024年韩国教育部门限制小学生用 AI 完成家庭作业，担心主动思考下降。")]
+
+    added_first = add_sources_to_argument_bank(debate, first)
+    added_second = add_sources_to_argument_bank(debate, second)
+
+    assert added_first["affirmative"] >= 1
+    assert added_second["negative"] >= 1
+    assert any(item.title == "韩国AI作业禁令" for item in debate.argument_bank["negative"])
+    assert len({item.id for item in debate.argument_bank["negative"]}) == len(debate.argument_bank["negative"])
+
+
+def test_ai_message_sources_and_new_claims_are_saved_as_arguments() -> None:
+    debate = _debate()
+    message = DebateMessage(
+        debate_id=debate.id,
+        speaker_id="neg_2",
+        speaker_name="星白",
+        side="negative",
+        phase="rebuttal",
+        segment_label="反方二辩回应",
+        content=(
+            "对方忽略了韩国AI作业禁令这一事实。"
+            "韩国AI作业禁令说明，AI 会替代学生完成检索和思考，长期削弱主动学习能力。"
+        ),
+        sources=[
+            Source(title="韩国AI作业禁令", excerpt="2024年韩国教育部门限制小学生用 AI 完成家庭作业。"),
+        ],
+    )
+
+    added = add_message_arguments_to_bank(debate, message)
+
+    assert added["negative"] >= 1
+    assert any("韩国AI作业禁令" == item.title for item in debate.argument_bank["negative"])
+    assert any("主动学习" in item.claim or "家庭作业" in item.claim for item in debate.argument_bank["negative"])

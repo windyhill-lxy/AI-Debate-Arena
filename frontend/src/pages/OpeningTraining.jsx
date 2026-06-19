@@ -275,29 +275,30 @@ export default function OpeningTraining() {
           {hint && <p className="home-hint">{hint}</p>}
         </section>
 
-        <section className="setup-panel setup-panel--active opening-training-result">
-          {!conversation.length ? (
-            <p className="home-hint">训练对话会显示在这里。</p>
-          ) : (
-            <>
-              <div className="opening-score">
-                <span>{result?.passed === false ? "最后评分" : "综合评分"}</span>
-                <strong>{result?.final_score ?? result?.score ?? "-"}</strong>
-              </div>
-              <div className="opening-chat">
-                {conversation.map((message) => (
-                  <article key={message.id} className={`opening-chat-message opening-chat-message--${message.role || "ai"}`}>
-                    <img src={message.avatar} alt="" />
-                    <div>
-                      <strong>{message.speaker_name}</strong>
-                      {message.round && <span>第 {message.round} 轮</span>}
-                      <MarkdownBody content={message.content} />
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </>
-          )}
+        <section className="setup-panel setup-panel--active opening-training-result opening-training-chat-panel">
+          <div className="opening-chat-panel-head">
+            <div>
+              <strong>训练对话</strong>
+              <span>{trainingMode === "ai_loop" ? "AI 一辩输出后，AI 裁判单独审核" : "人工稿件提交后，AI 裁判给出评审"}</span>
+            </div>
+            <div className="opening-score opening-score--compact">
+              <span>{result?.passed === false ? "最后评分" : "评分"}</span>
+              <strong>{result?.final_score ?? result?.score ?? "-"}</strong>
+            </div>
+          </div>
+          <div className={`opening-chat ${conversation.length ? "" : "opening-chat--empty"}`}>
+            {!conversation.length && <p className="home-hint">开始训练后，对话会按生成顺序逐条显示。</p>}
+            {conversation.map((message) => (
+              <article key={message.id} className={`opening-chat-message opening-chat-message--${message.role || "ai"}`}>
+                <img src={message.avatar} alt="" />
+                <div>
+                  <strong>{message.speaker_name}</strong>
+                  {message.round && <span>第 {message.round} 轮</span>}
+                  <MarkdownBody content={message.content} />
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       </main>
     </div>

@@ -220,12 +220,72 @@ async def _stream_opening_with_ai(
 
 def _analysis_summary(analysis: dict) -> str:
     risk = analysis.get("rag_checks", {}).get("hallucination_risk", "unknown")
+    structure = analysis.get("structure", {})
+    advice_items = analysis.get("revision_advice", [])
+    advice = " ".join(advice_items)
+    sources_found = analysis.get("rag_checks", {}).get("sources_found", 0)
+    return (
+        f"本轮评分 {analysis.get('score', 0)} 分。事实风险为 {risk}，RAG 找到 {sources_found} 条可参考资料。"
+        f"结构检查方面，定义和标准{'已经出现' if structure.get('has_definition') else '仍需补充'}，"
+        f"三个分论点{'基本完整' if structure.get('has_three_arguments') else '还不够清楚'}，"
+        f"结尾收束{'已经出现' if structure.get('has_closing') else '需要补上'}。"
+        f"修改重点是：{advice}"
+    )
+
+
+def _detailed_review_fallback(topic: str, side: Literal["affirmative", "negative"], draft: str, analysis: dict) -> str:
+    side_label = "正方" if side == "affirmative" else "反方"
     advice = " ".join(analysis.get("revision_advice", []))
     return (
-        f"本轮评分 {analysis.get('score', 0)} 分。"
-        f"事实风险为 {risk}。"
-        f"{advice}"
+        f"本轮审核：{side_label}一辩稿目前得到 {analysis.get('score', 0)} 分，还不能按满分稿处理。"
+        f"从一辩标准看，它必须同时完成定义、判断标准、三条主论证、证据支撑、反方预判和价值收束。"
+        f"现在最需要检查的是，定义是否能直接服务于辩题「{topic}」，标准是否能让裁判据此比较正反双方，"
+        f"每个论点是否都有具体事实或案例支撑，而不是只停留在抽象判断。"
+        f"RAG 校验显示事实风险为 {analysis.get('rag_checks', {}).get('hallucination_risk', 'unknown')}，"
+        f"可参考资料数量为 {analysis.get('rag_checks', {}).get('sources_found', 0)} 条。"
+        f"下一版请按这个顺序修改：先把核心概念界定清楚，再把第一论点写成最强战场，"
+        f"然后给第二、第三论点各补一个可核验案例，最后用两三句话说明为什么本方标准更能赢下比较。"
+        f"具体建议：{advice}"
     )
+
+
+async def _review_opening_with_ai(
+    topic: str,
+    side: Literal["affirmative", "negative"],
+    draft: str,
+    analysis: dict,
+) -> str:
+    side_label = "正方" if side == "affirmative" else "反方"
+    prompt = (
+        f"辩题：{topic}\n持方：{side_label}\n"
+        f"机器结构评分：{analysis.get('score', 0)}\n"
+        f"结构检查：{analysis.get('structure', {})}\n"
+        f"RAG 检查：{analysis.get('rag_checks', {})}\n"
+        f"初步建议：{analysis.get('revision_advice', [])}\n"
+        f"待审核立论：\n{draft}\n\n"
+        "请以严格辩论裁判兼一辩教练身份，输出详细审核意见。"
+        "必须包含：是否达标、结构问题、论据问题、事实核验风险、对方可能攻击点、下一版具体改法。"
+        "语言要自然，适合前端直接朗读，不要使用破折号、星号粗体或代码块。"
+    )
+    try:
+        review = await chat_completion(
+            [
+                {
+                    "role": "system",
+                    "content": "你是中文辩论赛一辩教练和严格裁判。只输出详细审核意见，不要替辩手直接重写全文。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.35,
+            max_tokens=1400,
+            operation="opening_training_review",
+        )
+        cleaned = _clean_speech_text(review)
+        if len(cleaned) >= 100:
+            return cleaned
+    except (DeepSeekError, Exception):
+        pass
+    return _detailed_review_fallback(topic, side, draft, analysis)
 
 
 async def auto_improve_opening_draft(
@@ -252,6 +312,7 @@ async def auto_improve_opening_draft(
     for round_index in range(1, max_rounds + 1):
         draft = await _generate_opening_with_ai(topic, side, advice_memory, previous_drafts)
         analysis = analyze_opening_draft(topic, side, draft)
+        review_text = await _review_opening_with_ai(topic, side, draft, analysis)
         current_passed = _opening_standard_met(analysis)
         final_draft = draft
         final_analysis = analysis
@@ -283,7 +344,7 @@ async def auto_improve_opening_draft(
                 "avatar": reviewer_avatar,
                 "kind": "analysis",
                 "round": round_index,
-                "content": _analysis_summary(analysis),
+                "content": review_text,
             }
         )
         if current_passed:
@@ -356,6 +417,7 @@ async def auto_improve_opening_draft_events(
         yield {"type": "draft", "message": draft_event}
 
         analysis = analyze_opening_draft(topic, side, draft)
+        review_text = await _review_opening_with_ai(topic, side, draft, analysis)
         current_passed = _opening_standard_met(analysis)
         review_event = {
             "id": f"review-{round_index}",
@@ -364,7 +426,7 @@ async def auto_improve_opening_draft_events(
             "avatar": reviewer_avatar,
             "kind": "analysis",
             "round": round_index,
-            "content": _analysis_summary(analysis),
+            "content": review_text,
         }
         conversation.append(review_event)
         yield {"type": "review", "message": review_event, "analysis": analysis, "passed": current_passed}

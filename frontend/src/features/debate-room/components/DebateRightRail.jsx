@@ -15,42 +15,88 @@ const KIND_COLOR = {
   check: "#8a6a2f", action: "#4a6a8a", judge: "#8a2f2f", router: "#8a5a2f",
 };
 
+function escapeXml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildWorkflowLayout(columns) {
+  const NODE_W = 230;
+  const NODE_H = 78;
+  const ROW_GAP = 22;
+  const STAGE_GAP = 34;
+  const PAD_X = 28;
+  const PAD_Y = 36;
+  const STAGE_W = 156;
+  const NODE_X = PAD_X + STAGE_W + NODE_W / 2 + 30;
+  const nodes = [];
+  const stages = [];
+  let y = PAD_Y + NODE_H / 2;
+  for (const [stageIndex, column] of (columns || []).entries()) {
+    const stageNodes = [...(column.nodes || [])].sort((a, b) => (a.lane || 0) - (b.lane || 0));
+    if (!stageNodes.length) continue;
+    const startY = y - NODE_H / 2;
+    for (const [nodeIndex, node] of stageNodes.entries()) {
+      nodes.push({
+        ...node,
+        stage: column.stage,
+        x: NODE_X,
+        y,
+        order: `${stageIndex + 1}.${nodeIndex + 1}`,
+      });
+      y += NODE_H + ROW_GAP;
+    }
+    const endY = y - ROW_GAP - NODE_H / 2;
+    stages.push({
+      stage: column.stage,
+      index: stageIndex + 1,
+      x: PAD_X,
+      y: (startY + endY) / 2,
+      height: Math.max(NODE_H, endY - startY + NODE_H),
+    });
+    y += STAGE_GAP;
+  }
+  const width = 560;
+  const height = Math.max(320, y + PAD_Y);
+  return { nodes, stages, width, height, nodeWidth: NODE_W, nodeHeight: NODE_H };
+}
+
 function exportWorkflowSVG(columns, topic) {
-  const CELL_W = 200, CELL_H = 80, COL_GAP = 60, ROW_GAP = 16, PAD = 24;
-  const nodes = columns.flatMap((col, ci) =>
-    col.nodes.map((node, ni) => ({
-      ...node, stage: col.stage,
-      x: PAD + ci * (CELL_W + COL_GAP),
-      y: PAD + ni * (CELL_H + ROW_GAP),
-    }))
-  );
-  const svgW = PAD * 2 + columns.length * (CELL_W + COL_GAP);
-  const svgH = PAD * 2 + Math.max(...columns.map(c => c.nodes.length)) * (CELL_H + ROW_GAP);
+  const layout = buildWorkflowLayout(columns);
+  const { nodes, stages, width, height, nodeWidth, nodeHeight } = layout;
 
   const paths = nodes.slice(1).map((n, i) => {
     const prev = nodes[i];
-    const x1 = prev.x + CELL_W, y1 = prev.y + CELL_H / 2;
-    const x2 = n.x, y2 = n.y + CELL_H / 2;
-    const mx = (x1 + x2) / 2;
-    return `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="#ccc" stroke-width="1.5"/>`;
+    return `<path d="M${prev.x},${prev.y + nodeHeight / 2} C${prev.x},${prev.y + nodeHeight / 2 + 12} ${n.x},${n.y - nodeHeight / 2 - 12} ${n.x},${n.y - nodeHeight / 2}" fill="none" stroke="#c9b9a5" stroke-width="2"/>`;
   });
+
+  const stageLabels = stages.map((stage) => `
+    <g transform="translate(${stage.x},${stage.y - stage.height / 2})">
+      <rect width="148" height="${stage.height}" rx="12" fill="#f3eadf" stroke="#dcc9b5"/>
+      <text x="14" y="28" font-size="12" fill="#8b6848" font-weight="700" font-family="sans-serif">${String(stage.index).padStart(2, "0")}</text>
+      <text x="14" y="50" font-size="13" fill="#2c241f" font-weight="700" font-family="sans-serif">${escapeXml(stage.stage)}</text>
+    </g>`);
 
   const rects = nodes.map((n) => {
     const color = KIND_COLOR[n.kind] || "#555";
     const status = n.status === "done" ? "opacity:0.5" : n.status === "running" ? "filter:drop-shadow(0 0 4px #334a8a)" : "";
     return `
-    <g transform="translate(${n.x},${n.y})" style="${status}">
-      <rect width="${CELL_W}" height="${CELL_H}" rx="10" fill="${color}18" stroke="${color}" stroke-width="1.5"/>
+    <g transform="translate(${n.x - nodeWidth / 2},${n.y - nodeHeight / 2})" style="${status}">
+      <rect width="${nodeWidth}" height="${nodeHeight}" rx="10" fill="${color}18" stroke="${color}" stroke-width="1.5"/>
       <text x="8" y="20" font-size="10" fill="${color}" font-weight="600" font-family="sans-serif">${n.kind?.toUpperCase()}</text>
-      <text x="${CELL_W / 2}" y="44" font-size="13" fill="#2c241f" font-weight="700" text-anchor="middle" font-family="sans-serif">${n.label}</text>
-      <text x="${CELL_W / 2}" y="62" font-size="10" fill="#6b5a48" text-anchor="middle" font-family="sans-serif">${n.stage}</text>
+      <text x="${nodeWidth / 2}" y="44" font-size="13" fill="#2c241f" font-weight="700" text-anchor="middle" font-family="sans-serif">${escapeXml(n.label)}</text>
+      <text x="${nodeWidth / 2}" y="62" font-size="10" fill="#6b5a48" text-anchor="middle" font-family="sans-serif">${escapeXml(n.stage)}</text>
     </g>`;
   });
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}">
-  <rect width="${svgW}" height="${svgH}" fill="#faf6ef"/>
-  <text x="${PAD}" y="${PAD - 6}" font-size="14" fill="#2c241f" font-weight="700" font-family="sans-serif">LangGraph 工作流 · ${topic || ''}</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  <rect width="${width}" height="${height}" fill="#faf6ef"/>
+  <text x="28" y="24" font-size="14" fill="#2c241f" font-weight="700" font-family="sans-serif">LangGraph 赛程流程 · ${escapeXml(topic || '')}</text>
+  ${stageLabels.join("")}
   ${paths.join("")}
   ${rects.join("")}
 </svg>`;
@@ -68,17 +114,7 @@ function WorkflowMindMap({ columns, interactive = false }) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
-  const nodes = columns.flatMap((column, columnIndex) =>
-    column.nodes.map((node, nodeIndex) => ({
-      ...node,
-      stage: column.stage,
-      x: columnIndex * 240 + 80,
-      y: nodeIndex * 94 + 70,
-      order: `${columnIndex + 1}.${nodeIndex + 1}`,
-    })),
-  );
-  const width = Math.max(760, columns.length * 240 + 80);
-  const height = Math.max(260, ...nodes.map((node) => node.y + 70));
+  const { nodes, stages, width, height } = buildWorkflowLayout(columns);
   const onWheel = (event) => {
     if (!interactive) return;
     event.preventDefault();
@@ -120,16 +156,25 @@ function WorkflowMindMap({ columns, interactive = false }) {
       <svg className="workflow-mindmap__links" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
         {nodes.slice(1).map((node, index) => {
           const prev = nodes[index];
-          const midX = (prev.x + node.x) / 2;
           return (
             <path
               key={`${prev.id}-${node.id}`}
-              d={`M ${prev.x + 82} ${prev.y} C ${midX} ${prev.y}, ${midX} ${node.y}, ${node.x - 82} ${node.y}`}
+              d={`M ${prev.x} ${prev.y + 40} C ${prev.x} ${prev.y + 58}, ${node.x} ${node.y - 58}, ${node.x} ${node.y - 40}`}
             />
           );
         })}
       </svg>
       <div className="workflow-mindmap__nodes" style={{ width, height }}>
+        {stages.map((stage) => (
+          <aside
+            key={stage.stage}
+            className="workflow-stage-label"
+            style={{ left: stage.x, top: stage.y, height: stage.height }}
+          >
+            <span>{String(stage.index).padStart(2, "0")}</span>
+            <strong>{stage.stage}</strong>
+          </aside>
+        ))}
         {nodes.map((node) => (
           <article
             key={node.id}

@@ -2345,14 +2345,39 @@ button.active,
 
 .mind-node {
   position: absolute;
-  width: 170px;
-  min-height: 74px;
+  width: 230px;
+  min-height: 78px;
   padding: 12px 13px;
   border: 1px solid rgba(72, 54, 41, 0.12);
-  border-radius: 22px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.78);
   box-shadow: 0 16px 40px rgba(72, 47, 28, 0.08);
   transform: translate(-50%, -50%);
+}
+
+.workflow-stage-label {
+  position: absolute;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  width: 148px;
+  padding: 14px;
+  border: 1px solid rgba(129, 96, 62, 0.18);
+  border-radius: 12px;
+  background: rgba(243, 234, 223, 0.74);
+  color: #2c241f;
+  transform: translateY(-50%);
+}
+
+.workflow-stage-label span {
+  color: #9b7650;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflow-stage-label strong {
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .mind-node span {

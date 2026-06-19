@@ -14,7 +14,7 @@ except Exception:
 
 from app.models import DebateMessage, DebateState, Source, build_schedule_status
 from app.services.ai_context_manager import build_ai_debater_context, format_argument_bank
-from app.services.argument_bank import add_argument_items, build_argument_bank_from_sources
+from app.services.argument_bank import add_message_arguments_to_bank, add_sources_to_argument_bank
 from app.services.debate_mode import peek_next_speaker_id
 from app.services.debate_schedule import advance_schedule, segment_prompt_hint
 from app.services.llm import DeepSeekError, chat_completion, chat_completion_stream, resolve_model, strip_model_reasoning
@@ -325,10 +325,8 @@ class DebateGraph:
         )
         query = (last_visible.content if last_visible else None) or debate.topic
         state["sources"] = retrieve_sources(debate.topic, query, debate_id=debate.id)
-        if state["sources"] and not debate.argument_bank_locked:
-            bank = build_argument_bank_from_sources(debate.topic, state["sources"])
-            add_argument_items(debate, "affirmative", bank["affirmative"])
-            add_argument_items(debate, "negative", bank["negative"])
+        if state["sources"]:
+            add_sources_to_argument_bank(debate, state["sources"])
         return state
 
     async def _strategy_plan(self, state: dict) -> dict:
@@ -1174,6 +1172,7 @@ class DebateGraph:
         for message in messages:
             if message is not None:
                 debate.messages.append(message)
+                add_message_arguments_to_bank(debate, message)
         debate.updated_at = utc_now()
         label = (messages[-1].segment_label if messages and messages[-1] else debate.segment_label) or ""
         if "输出裁判报告" in label:

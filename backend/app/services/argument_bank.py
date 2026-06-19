@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from app.models import ArgumentBankItem, DebateState, Source
+from app.models import ArgumentBankItem, DebateMessage, DebateState, Source
 
 
 SIDE_PREFIX = {"affirmative": "AFF", "negative": "NEG"}
@@ -20,6 +20,7 @@ TITLE_STOPWORDS = (
     "能",
     "将",
 )
+MAX_TITLE_LEN = 18
 
 
 def short_argument_title(claim: str) -> str:
@@ -31,19 +32,62 @@ def short_argument_title(claim: str) -> str:
     if unverifiable_case:
         return f"{unverifiable_case.group(1)}案例未经证实"[:14]
     text = text.strip("，。；;：:、 ")
-    return text[:14] or "核心论据"
+    return text[:MAX_TITLE_LEN] or "核心论据"
+
+
+def _normalise_key(text: str) -> str:
+    text = re.sub(r"[【】\[\]\s，。；;：:、,.!?！？（）()《》“”\"']", "", text or "")
+    return text[:80]
+
+
+def _argument_key(item: ArgumentBankItem) -> str:
+    return _normalise_key(item.title or item.claim)
+
+
+def _source_display_title(source: Source) -> str:
+    title = source.title or source.excerpt or "资料论据"
+    title = re.sub(r"\s*[·\-_]\s*片段\s*\d+\s*$", "", title).strip()
+    return short_argument_title(title)
+
+
+def _next_argument_id(debate: DebateState, side: str) -> str:
+    prefix = SIDE_PREFIX[side]
+    indexes: list[int] = []
+    for item in debate.argument_bank.get(side, []):
+        match = re.fullmatch(rf"{prefix}-(\d+)", item.id or "", flags=re.IGNORECASE)
+        if match:
+            indexes.append(int(match.group(1)))
+    return f"{prefix}-{(max(indexes) if indexes else 0) + 1}"
 
 
 def add_argument_items(debate: DebateState, side: str, items: list[ArgumentBankItem]) -> None:
     if side not in {"affirmative", "negative"}:
         return
-    existing = {item.id for item in debate.argument_bank.get(side, [])}
+    prefix = SIDE_PREFIX[side]
+    existing_ids = {item.id for item in debate.argument_bank.get(side, [])}
+    existing_keys = {_argument_key(item) for item in debate.argument_bank.get(side, [])}
     bucket = debate.argument_bank.setdefault(side, [])
     for item in items:
-        if item.id not in existing and item.side == side:
-            bucket.append(item)
-            existing.add(item.id)
-    debate.argument_bank_locked = True
+        if item.side != side:
+            continue
+        key = _argument_key(item)
+        if key and key in existing_keys:
+            continue
+        item_id = item.id if re.fullmatch(rf"{prefix}-\d+", item.id or "", flags=re.IGNORECASE) else ""
+        if not item_id or item_id in existing_ids:
+            item_id = _next_argument_id(debate, side)
+        normalized = item.model_copy(
+            update={
+                "id": item_id,
+                "title": (item.title or short_argument_title(item.claim))[:MAX_TITLE_LEN],
+                "claim": re.sub(r"\s+", " ", item.claim or "").strip(),
+            }
+        )
+        bucket.append(normalized)
+        existing_ids.add(normalized.id)
+        existing_keys.add(_argument_key(normalized))
+    if debate.argument_bank.get("affirmative") or debate.argument_bank.get("negative"):
+        debate.argument_bank_locked = True
 
 
 def build_argument_bank_items(
@@ -80,22 +124,102 @@ def _claim_from_source(topic: str, source: Source, side: str) -> str:
 
 
 def _source_relevant_to_side(text: str, side: str) -> bool:
-    positive = ("提升", "帮助", "促进", "增强", "降低成本", "即时反馈", "效率", "积极", "可控")
-    negative = ("风险", "依赖", "削弱", "错误", "不可靠", "隐私", "替代", "负面", "未经证实")
+    positive = ("提升", "帮助", "促进", "增强", "降低成本", "即时反馈", "效率", "积极", "可控", "发现知识漏洞", "复盘")
+    negative = ("风险", "依赖", "削弱", "错误", "不可靠", "隐私", "替代", "负面", "未经证实", "禁令", "禁止", "限制", "担心", "下降")
     terms = positive if side == "affirmative" else negative
     return any(term in text for term in terms)
 
 
 def build_argument_bank_from_sources(topic: str, sources: list[Source]) -> dict[str, list[ArgumentBankItem]]:
-    claims: dict[str, list[str]] = {"affirmative": [], "negative": []}
+    bank: dict[str, list[ArgumentBankItem]] = {"affirmative": [], "negative": []}
+    counters = {"affirmative": 0, "negative": 0}
     for source in sources:
         text = f"{source.title} {source.excerpt}"
+        matched = False
         for side in ("affirmative", "negative"):
-            if _source_relevant_to_side(text, side) or len(claims[side]) == 0:
-                claims[side].append(_claim_from_source(topic, source, side))
-        if len(claims["affirmative"]) >= 3 and len(claims["negative"]) >= 3:
-            break
-    return build_argument_bank_items(claims, source="RAG 资料入库")
+            if _source_relevant_to_side(text, side):
+                matched = True
+                counters[side] += 1
+                bank[side].append(
+                    ArgumentBankItem(
+                        id=f"{SIDE_PREFIX[side]}-{counters[side]}",
+                        side=side,  # type: ignore[arg-type]
+                        title=_source_display_title(source),
+                        claim=_claim_from_source(topic, source, side),
+                        source="RAG 资料入库",
+                    )
+                )
+        if not matched:
+            for side in ("affirmative", "negative"):
+                counters[side] += 1
+                bank[side].append(
+                    ArgumentBankItem(
+                        id=f"{SIDE_PREFIX[side]}-{counters[side]}",
+                        side=side,  # type: ignore[arg-type]
+                        title=_source_display_title(source),
+                        claim=_claim_from_source(topic, source, side),
+                        source="RAG 资料入库",
+                    )
+                )
+    return bank
+
+
+def add_sources_to_argument_bank(debate: DebateState, sources: list[Source]) -> dict[str, int]:
+    before = {side: len(debate.argument_bank.get(side, [])) for side in ("affirmative", "negative")}
+    bank = build_argument_bank_from_sources(debate.topic, sources)
+    add_argument_items(debate, "affirmative", bank["affirmative"])
+    add_argument_items(debate, "negative", bank["negative"])
+    return {side: len(debate.argument_bank.get(side, [])) - before[side] for side in ("affirmative", "negative")}
+
+
+def _extract_claims_from_message(content: str) -> list[str]:
+    text = re.sub(r"\s+", " ", content or "").strip()
+    if not text:
+        return []
+    claims: list[str] = []
+    markers = (
+        "研究",
+        "报告",
+        "数据显示",
+        "调查",
+        "案例",
+        "禁令",
+        "限制",
+        "禁止",
+        "说明",
+        "表明",
+        "证明",
+        "显示",
+        "OECD",
+    )
+    for sentence in re.split(r"(?<=[。！？!?])", text):
+        sentence = sentence.strip(" ，。；;")
+        if len(sentence) < 18:
+            continue
+        if any(marker in sentence for marker in markers) or re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%", sentence):
+            claims.append(sentence)
+    return claims[:4]
+
+
+def add_message_arguments_to_bank(debate: DebateState, message: DebateMessage) -> dict[str, int]:
+    if message.side not in {"affirmative", "negative"}:
+        return {"affirmative": 0, "negative": 0}
+    before = {side: len(debate.argument_bank.get(side, [])) for side in ("affirmative", "negative")}
+    if message.sources:
+        add_sources_to_argument_bank(debate, message.sources)
+    claims = _extract_claims_from_message(message.content)
+    items = [
+        ArgumentBankItem(
+            id=f"{SIDE_PREFIX[message.side]}-{index}",
+            side=message.side,  # type: ignore[arg-type]
+            title=short_argument_title(claim),
+            claim=claim,
+            source=f"AI 发言入库 · {message.speaker_name}",
+        )
+        for index, claim in enumerate(claims, start=1)
+    ]
+    add_argument_items(debate, message.side, items)
+    return {side: len(debate.argument_bank.get(side, [])) - before[side] for side in ("affirmative", "negative")}
 
 
 def argument_ids_for_side(debate: DebateState, side: str) -> set[str]:

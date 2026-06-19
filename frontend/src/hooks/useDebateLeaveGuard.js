@@ -18,7 +18,7 @@ export function useDebateLeaveGuard(enabled, message = DEFAULT_MESSAGE) {
   }, [enabled, message]);
 
   return useCallback(() => {
-    if (!enabled || isDesktopApp()) return true;
+    if (!enabled) return true;
     return window.confirm(message);
   }, [enabled, message]);
 }

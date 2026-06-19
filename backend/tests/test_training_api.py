@@ -69,3 +69,43 @@ async def test_opening_training_auto_improve_streams_round_events(client: AsyncC
     assert '"type": "draft"' in text
     assert '"type": "review"' in text
     assert '"type": "done"' in text
+
+
+@pytest.mark.asyncio
+async def test_opening_training_auto_improve_uses_separate_draft_and_review_calls(client: AsyncClient, monkeypatch) -> None:
+    operations: list[str] = []
+
+    async def fake_stream(*_args, **kwargs):
+        operations.append(kwargs.get("operation", ""))
+        yield "主席、评委，大家好。我方认为人工智能会提升学习能力。第一，AI 能即时反馈。第二，AI 能提供材料。第三，AI 能帮助复盘。因此我方认为它有助于学习。"
+
+    async def fake_chat_completion(*_args, **kwargs):
+        operations.append(kwargs.get("operation", ""))
+        return (
+            "本轮审核：这篇稿件有基本结构，但还没有达到正式一辩立论标准。"
+            "第一，定义只说了学习能力，没有界定综合学习能力的判断标准。"
+            "第二，三条论点都偏短，论据缺少具体来源、场景和可核验细节。"
+            "第三，结尾没有比较正反双方标准，也没有提前回应反方关于依赖和替代思考的攻击。"
+            "下一版应补充清晰定义、三个可验证案例、反方预判和价值收束。"
+        )
+
+    monkeypatch.setattr("app.services.training.chat_completion_stream", fake_stream)
+    monkeypatch.setattr("app.services.training.chat_completion", fake_chat_completion)
+
+    async with client.stream(
+        "POST",
+        "/api/debates/opening-training/auto-improve/stream",
+        json={
+            "topic": "人工智能是否会提升青少年的综合学习能力",
+            "side": "affirmative",
+            "max_rounds": 1,
+        },
+    ) as response:
+        body = await response.aread()
+
+    assert response.status_code == 200
+    text = body.decode("utf-8")
+    assert "opening_training_auto_improve_stream" in operations
+    assert "opening_training_review" in operations
+    assert "本轮审核" in text
+    assert len(text[text.find("本轮审核"):]) > 120
