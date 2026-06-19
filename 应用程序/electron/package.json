@@ -25,6 +25,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "loading-error.html",
       "package.json"
     ],
     "extraResources": [

@@ -93,7 +93,11 @@ Invoke-Robocopy -Source $frontendSrc -Destination $frontendDst
 Write-Step "复制 SPA 服务脚本（含 API 代理，支持公网穿透）"
 $scriptsDst = Join-Path $appCore "scripts"
 New-Item -ItemType Directory -Path $scriptsDst -Force | Out-Null
-Copy-Item -Path (Join-Path $ProjectRoot "scripts\serve_unified.py") -Destination $scriptsDst -Force
+$serveUnifiedSrc = Join-Path $PackRoot "scripts\serve_unified.py"
+if (-not (Test-Path $serveUnifiedSrc)) {
+    throw "缺少桌面端统一启动脚本 $serveUnifiedSrc"
+}
+Copy-Item -Path $serveUnifiedSrc -Destination $scriptsDst -Force
 
 Write-Step "准备 cloudflared（公网穿透）"
 $toolsDst = Join-Path $appCore "tools"
@@ -161,6 +165,33 @@ Copy-Item -Path $readmeSrc -Destination (Join-Path $finalDir "使用说明.txt")
 $envFile = Join-Path $ProjectRoot ".env"
 if (Test-Path $envFile) {
     Copy-Item -Path $envFile -Destination (Join-Path $finalDir ".env") -Force
+}
+
+Write-Step "校验发行包关键文件"
+$requiredReleaseFiles = @(
+    (Join-Path $finalDir "AI辩论场.exe"),
+    (Join-Path $finalDir "resources\app-core\python\python.exe"),
+    (Join-Path $finalDir "resources\app-core\backend\app\main.py"),
+    (Join-Path $finalDir "resources\app-core\backend\requirements.txt"),
+    (Join-Path $finalDir "resources\app-core\frontend-dist\index.html"),
+    (Join-Path $finalDir "resources\app-core\scripts\serve_unified.py"),
+    (Join-Path $finalDir "resources\app-core\.env.example"),
+    (Join-Path $finalDir ".env.example"),
+    (Join-Path $finalDir "使用说明.txt")
+)
+$missingReleaseFiles = @($requiredReleaseFiles | Where-Object { -not (Test-Path $_) })
+if ($missingReleaseFiles.Count -gt 0) {
+    throw "发行包缺少关键文件：`n$($missingReleaseFiles -join "`n")"
+}
+
+$frontendAssetsDir = Join-Path $finalDir "resources\app-core\frontend-dist\assets"
+if (-not (Test-Path $frontendAssetsDir)) {
+    throw "发行包缺少前端 assets 目录：$frontendAssetsDir"
+}
+
+$releaseCloudflared = Join-Path $finalDir "resources\app-core\tools\cloudflared.exe"
+if (-not (Test-Path $releaseCloudflared)) {
+    Write-Host "  警告：发行包缺少 cloudflared.exe，公网隧道方式可能不可用。" -ForegroundColor Yellow
 }
 
 $portableExe = Get-ChildItem -Path $distOut -Filter "AI辩论场-*-便携单文件.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
