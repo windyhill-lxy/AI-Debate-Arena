@@ -2311,7 +2311,21 @@ button.active,
 }
 
 .workflow-flow .react-flow__edge-path {
-  stroke: rgba(50, 45, 39, 0.78);
+  stroke: rgba(50, 45, 39, 0.82);
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+}
+
+.workflow-flow .react-flow__edge {
+  z-index: 1;
+}
+
+.workflow-flow .react-flow__node {
+  z-index: 2;
+}
+
+.workflow-flow .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .workflow-flow .react-flow__edge-textbg {
@@ -2325,6 +2339,8 @@ button.active,
 }
 
 .workflow-flow-node {
+  box-sizing: border-box;
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -2368,9 +2384,10 @@ button.active,
 .workflow-flow-node--router,
 .workflow-flow-node--check,
 .workflow-flow-node--judge {
-  transform: rotate(45deg);
+  padding: 15px 24px;
   border-radius: 8px;
   background: #4b93df;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
   color: #fff;
 }
 
@@ -2385,8 +2402,7 @@ button.active,
 .workflow-flow-node--router .workflow-flow-node__inner,
 .workflow-flow-node--check .workflow-flow-node__inner,
 .workflow-flow-node--judge .workflow-flow-node__inner {
-  transform: rotate(-45deg);
-  width: 92px;
+  width: 96px;
   gap: 3px;
 }
 

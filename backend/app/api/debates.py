@@ -662,7 +662,11 @@ async def auto_improve_opening_training_stream(payload: OpeningTrainingAutoImpro
         async for event in auto_improve_opening_draft_events(payload.topic, payload.side, payload.max_rounds):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/opening-training/polish")

@@ -40,17 +40,25 @@ async function streamAutoImproveOpening({ topic, side, maxRounds }, onEvent) {
   if (!reader) throw new Error("stream unavailable");
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  const dispatchFrame = async (frame) => {
+    const line = frame.split(/\r?\n/).find((entry) => entry.startsWith("data: "));
+    if (!line) return;
+    onEvent(JSON.parse(line.slice(6)));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  };
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
+    const frames = buffer.split(/\r?\n\r?\n/);
     buffer = frames.pop() || "";
     for (const frame of frames) {
-      const line = frame.split("\n").find((entry) => entry.startsWith("data: "));
-      if (!line) continue;
-      onEvent(JSON.parse(line.slice(6)));
+      await dispatchFrame(frame);
     }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    await dispatchFrame(buffer);
   }
 }
 
@@ -134,10 +142,10 @@ export default function OpeningTraining() {
         upsertConversationMessage({ ...message, content: nextTarget });
         return;
       }
-      const nextVisible = nextTarget.slice(0, Math.min(nextTarget.length, visible.length + 8));
+      const nextVisible = nextTarget.slice(0, Math.min(nextTarget.length, visible.length + 28));
       visibleContentRef.current[id] = nextVisible;
       upsertConversationMessage({ ...message, content: nextVisible });
-      revealTimersRef.current[id] = window.setTimeout(tick, 18);
+      revealTimersRef.current[id] = window.setTimeout(tick, 16);
     };
     revealTimersRef.current[id] = window.setTimeout(tick, 0);
   }

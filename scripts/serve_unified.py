@@ -30,7 +30,7 @@ from starlette.exceptions import HTTPException
 
 from starlette.requests import Request
 
-from starlette.responses import FileResponse, Response
+from starlette.responses import FileResponse, Response, StreamingResponse
 
 from starlette.routing import Mount, Route, WebSocketRoute
 
@@ -86,13 +86,17 @@ async def proxy_http(request: Request) -> Response:
 
     body = await request.body()
 
+    client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT, follow_redirects=False, trust_env=False)
+
     try:
 
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, follow_redirects=False, trust_env=False) as client:
+        upstream_request = client.build_request(request.method, url, headers=headers, content=body or None)
 
-            upstream = await client.request(request.method, url, headers=headers, content=body or None)
+        upstream = await client.send(upstream_request, stream=True)
 
     except httpx.RequestError as exc:
+
+        await client.aclose()
 
         logger.warning("http proxy failed %s %s: %s", request.method, url, exc)
 
@@ -100,7 +104,21 @@ async def proxy_http(request: Request) -> Response:
 
     out_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP}
 
-    return Response(content=upstream.content, status_code=upstream.status_code, headers=out_headers)
+    async def stream_body():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                if chunk:
+                    yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream_body(),
+        status_code=upstream.status_code,
+        headers=out_headers,
+        media_type=upstream.headers.get("content-type"),
+    )
 
 
 

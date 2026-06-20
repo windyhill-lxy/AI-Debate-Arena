@@ -7,6 +7,7 @@ import {
   MiniMap,
   ReactFlowProvider,
   Position,
+  Handle,
   useReactFlow,
 } from "@xyflow/react";
 import dagre from "dagre";
@@ -17,9 +18,9 @@ const NODE_SIZE = {
   retrieval: { width: 190, height: 78 },
   llm: { width: 190, height: 78 },
   action: { width: 190, height: 78 },
-  router: { width: 126, height: 126 },
-  check: { width: 126, height: 126 },
-  judge: { width: 126, height: 126 },
+  router: { width: 158, height: 118 },
+  check: { width: 158, height: 118 },
+  judge: { width: 158, height: 118 },
   terminal: { width: 180, height: 70 },
 };
 
@@ -56,9 +57,10 @@ function layoutWorkflow(columns = []) {
   const graph = new dagre.graphlib.Graph();
   graph.setGraph({
     rankdir: "TB",
-    align: "UL",
-    ranksep: 58,
-    nodesep: 42,
+    align: "DL",
+    ranksep: 92,
+    nodesep: 76,
+    edgesep: 28,
     marginx: 36,
     marginy: 36,
   });
@@ -104,8 +106,9 @@ function layoutWorkflow(columns = []) {
     target: flat[index + 1].id,
     type: "smoothstep",
     label: edgeLabelFor(node, index),
+    animated: flat[index + 1].status === "running",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-    style: { strokeWidth: 1.6 },
+    style: { strokeWidth: 2 },
   }));
 
   return { nodes, edges };
@@ -186,11 +189,13 @@ export function exportWorkflowSVG(columns, topic) {
 const WorkflowNode = memo(function WorkflowNode({ data }) {
   return (
     <div className={`workflow-flow-node workflow-flow-node--${data.kind} ${data.status || ""}`}>
+      <Handle type="target" position={Position.Top} isConnectable={false} />
       <div className="workflow-flow-node__inner">
         <span>{data.order}</span>
         <strong>{data.label}</strong>
         <small>{data.stage}</small>
       </div>
+      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   );
 });
@@ -208,9 +213,14 @@ function WorkflowGraphCanvas({ columns, interactive = false }) {
 
   useEffect(() => {
     window.requestAnimationFrame(() => {
-      flow.fitView({ nodes: focusNodes, padding: interactive ? 0.28 : 0.2, duration: 240, maxZoom: interactive ? 1.1 : 0.82 });
+      flow.fitView({
+        nodes: interactive ? nodes : focusNodes,
+        padding: interactive ? 0.18 : 0.24,
+        duration: 240,
+        maxZoom: interactive ? 0.95 : 0.78,
+      });
     });
-  }, [flow, focusNodes, interactive]);
+  }, [flow, focusNodes, interactive, nodes]);
 
   return (
     <ReactFlow
@@ -221,6 +231,7 @@ function WorkflowGraphCanvas({ columns, interactive = false }) {
       minZoom={0.18}
       maxZoom={2.2}
       panOnDrag
+      panOnScroll={interactive}
       zoomOnScroll={interactive}
       zoomOnPinch
       zoomOnDoubleClick={false}

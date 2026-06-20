@@ -11,6 +11,7 @@ if errorlevel 1 (
 )
 echo.
 echo 服务已在独立窗口中启动（Backend / Frontend）。
-echo 本窗口 5 秒后自动关闭，也可按任意键立即关闭。
-choice /c YN /d Y /t 5 /m "是否现在关闭本窗口"
+echo 请保留 Backend / Frontend 两个窗口运行；关闭它们会停止服务。
+echo.
+pause
 exit /b 0
