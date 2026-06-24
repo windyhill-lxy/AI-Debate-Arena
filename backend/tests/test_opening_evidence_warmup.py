@@ -71,6 +71,7 @@ async def test_create_debate_merges_matching_opening_evidence_prep(client, monke
     prep = _debate("复用准备论据")
     prep.argument_bank = _warm_bank()
     prep.argument_bank_locked = True
+    prep.opening_evidence_completed = True
     await save_debate(prep.model_dump(mode="json"))
 
     monkeypatch.setattr("app.api.debates.warm_opening_evidence", lambda _debate: None)
@@ -89,6 +90,7 @@ async def test_create_debate_merges_matching_opening_evidence_prep(client, monke
     body = response.json()
     assert body["argument_bank"]["affirmative"][0]["id"] == "AFF-1"
     assert body["argument_bank"]["negative"][0]["id"] == "NEG-1"
+    assert body["opening_evidence_completed"] is True
 
 
 @pytest.mark.asyncio

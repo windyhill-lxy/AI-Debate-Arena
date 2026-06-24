@@ -325,7 +325,7 @@ async def test_opening_team_discussion_each_affirmative_debater_uses_argument_ba
 
 
 @pytest.mark.asyncio
-async def test_opening_evidence_gate_pauses_when_argument_bank_not_ready(monkeypatch) -> None:
+async def test_opening_evidence_gate_advances_after_bounded_search_even_when_bank_not_full(monkeypatch) -> None:
     from app.services.opening_evidence import OpeningEvidenceResult
 
     debate = _debate()
@@ -339,21 +339,22 @@ async def test_opening_evidence_gate_pauses_when_argument_bank_not_ready(monkeyp
     else:
         raise AssertionError("missing opening evidence segment")
 
-    async def not_ready(*_args, **_kwargs):
+    async def completed_with_sparse_results(*_args, **_kwargs):
+        debate.opening_evidence_completed = True
         return OpeningEvidenceResult(
             added={"affirmative": 0, "negative": 0},
             sources=[],
-            ready=False,
+            ready=True,
         )
 
-    monkeypatch.setattr("app.workflow.debate_graph.ensure_opening_argument_bank", not_ready)
+    monkeypatch.setattr("app.workflow.debate_graph.ensure_opening_argument_bank", completed_with_sparse_results)
     before_index = debate.schedule_index
 
     result = await debate_graph.run_turn_streaming(debate)
 
-    assert result.schedule_index == before_index
-    assert result.messages == []
-    assert result.auto_running is False
+    assert result.schedule_index == before_index + 1
+    assert result.messages
+    assert result.opening_evidence_completed is True
     assert result.awaiting_user is False
 
 

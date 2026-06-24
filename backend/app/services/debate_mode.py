@@ -1,5 +1,5 @@
 from app.models import DebateMode, DebateState, OnlineParticipant
-from app.services.argument_bank import opening_argument_bank_ready
+from app.services.opening_evidence import opening_evidence_completed
 from app.services.debate_schedule import agent_id, get_segment
 
 
@@ -69,16 +69,7 @@ def _positions_spoken_in_current_segment(debate: DebateState, side: str) -> set[
 
 
 def _positions_spoken_in_current_team_prep(debate: DebateState, side: str) -> set[int]:
-    positions = _positions_spoken_in_current_segment(debate, side)
-    if debate.phase == "opening_prep" and "队内讨论" in (debate.segment_label or ""):
-        task_label = "反方一辩任务分配" if side == "negative" else "一辩任务分配"
-        for message in debate.messages:
-            if message.side != side or task_label not in (message.segment_label or ""):
-                continue
-            position = _position_from_speaker_id(message.speaker_id, side)
-            if position is not None:
-                positions.add(position)
-    return positions
+    return _positions_spoken_in_current_segment(debate, side)
 
 
 def next_online_participant_for_team_discussion(debate: DebateState) -> OnlineParticipant | None:
@@ -129,7 +120,7 @@ def is_user_team_discussion_segment(debate: DebateState) -> bool:
 def opening_team_discussion_ready(debate: DebateState) -> bool:
     if debate.phase != "opening_prep" or not is_user_team_discussion_segment(debate):
         return True
-    return opening_argument_bank_ready(debate)
+    return opening_evidence_completed(debate)
 
 
 def _user_spoke_in_current_segment(debate: DebateState) -> bool:

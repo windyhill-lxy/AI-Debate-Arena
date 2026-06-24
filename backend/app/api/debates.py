@@ -69,6 +69,7 @@ from app.services import presence
 from app.services.realtime import manager
 from app.services.ops_events import append_ops_event
 from app.services.opening_evidence_warmup import cancel_opening_evidence_warmup, start_opening_evidence_warmup
+from app.services.opening_evidence import opening_evidence_completed
 from app.services.user_turn_flow import accept_user_message, speaker_id_for_user_message
 from app.workflow.debate_graph import debate_graph
 
@@ -605,6 +606,7 @@ def _merge_opening_evidence_from_prep(debate: DebateState, prep: DebateState | N
     for side in ("affirmative", "negative"):
         add_argument_items(debate, side, prep.argument_bank.get(side, []))
     debate.argument_bank_locked = debate.argument_bank_locked or prep.argument_bank_locked
+    debate.opening_evidence_completed = debate.opening_evidence_completed or prep.opening_evidence_completed
 
 
 @router.post("/opening-evidence-prep", dependencies=[Depends(enforce_create_room_limit)])
@@ -638,6 +640,7 @@ async def prepare_opening_evidence(payload: DebateCreate) -> dict:
         "prep_id": prep.id,
         "topic": prep.topic,
         "opening_argument_bank_ready": opening_argument_bank_ready(prep),
+        "opening_evidence_completed": opening_evidence_completed(prep),
         "argument_bank": {
             side: [item.model_dump(mode="json") for item in prep.argument_bank.get(side, [])]
             for side in ("affirmative", "negative")
@@ -1262,7 +1265,7 @@ async def post_user_message(debate_id: str, payload: UserMessageCreate, request:
         debate.updated_at = utc_now()
         await _persist_and_broadcast(debate, "opening_argument_bank_required")
         resume_auto(debate.id)
-        raise HTTPException(status_code=409, detail="论据库尚未搜集完成，请等待正反方论据各达到 10 条后再进入队内讨论")
+        raise HTTPException(status_code=409, detail="论据库搜集流程尚未完成，请稍后再进入队内讨论")
     if not needs_user_turn(debate) and not debate.awaiting_user:
         raise HTTPException(status_code=400, detail="当前环节不需要用户发言")
 

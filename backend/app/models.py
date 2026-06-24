@@ -234,6 +234,7 @@ class DebateState(BaseModel):
         default_factory=lambda: {"affirmative": [], "negative": []}
     )
     argument_bank_locked: bool = False
+    opening_evidence_completed: bool = False
     online_session_id: str | None = None
     free_aff_remaining_sec: int = 240
     free_neg_remaining_sec: int = 240

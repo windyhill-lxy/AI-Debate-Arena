@@ -76,6 +76,13 @@ export function openingArgumentBankReady(debate) {
   );
 }
 
+export function openingEvidenceCompleted(debate) {
+  if (typeof debate?.opening_evidence_completed === "boolean") {
+    return debate.opening_evidence_completed;
+  }
+  return openingArgumentBankReady(debate);
+}
+
 export function openingArgumentBankStatus(debate) {
   const target = debate?.opening_argument_target_per_side || 10;
   const aff = (debate?.argument_bank?.affirmative || []).length;
@@ -99,7 +106,7 @@ function teamDiscussionSideFromLabel(debate) {
 
 export function needsUserTurn(debate, participant = null) {
   const internalTeamPhase = isInternalPrepPhase(debate);
-  if (debate?.phase === "opening_prep" && isTeamDiscussionSegment(debate) && !openingArgumentBankReady(debate)) {
+  if (debate?.phase === "opening_prep" && isTeamDiscussionSegment(debate) && !openingEvidenceCompleted(debate)) {
     return false;
   }
   if (debate.mode === "online_match") {
@@ -222,7 +229,7 @@ export function getSpeechInputState({
           )
         : Boolean(debate.awaiting_user || needsUserTurn(debate));
   if (isInternalPrepPhase(debate) && isTeamDiscussionSegment(debate) && !isYourTurn) {
-    if (debate.phase === "opening_prep" && !openingArgumentBankReady(debate)) {
+    if (debate.phase === "opening_prep" && !openingEvidenceCompleted(debate)) {
       const { target, aff, neg } = openingArgumentBankStatus(debate);
       return {
         canSubmit: false,

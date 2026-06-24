@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.models import DebateMessage, DebateMode, DebateState, OnlineParticipant
 from app.services.argument_bank import OPENING_ARGUMENT_TARGET_PER_SIDE, opening_argument_bank_ready
+from app.services.opening_evidence import opening_evidence_completed
 from app.services.debate_mode import debate_user_side
 from app.services.message_visibility import (
     filter_messages_for_viewer,
@@ -128,6 +129,7 @@ def debate_payload_for_viewer(
     payload["online_has_guest"] = len(connected_debaters) >= 2
     payload["opening_argument_target_per_side"] = OPENING_ARGUMENT_TARGET_PER_SIDE
     payload["opening_argument_bank_ready"] = opening_argument_bank_ready(debate)
+    payload["opening_evidence_completed"] = opening_evidence_completed(debate)
     return payload
 
 

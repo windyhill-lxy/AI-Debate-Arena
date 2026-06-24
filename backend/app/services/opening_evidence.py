@@ -29,6 +29,10 @@ OPENING_EVIDENCE_WAIT_SEGMENTS = {
 }
 
 
+def opening_evidence_completed(debate: DebateState) -> bool:
+    return bool(getattr(debate, "opening_evidence_completed", False) or opening_argument_bank_ready(debate))
+
+
 @dataclass(frozen=True)
 class OpeningEvidenceResult:
     added: dict[str, int]
@@ -49,7 +53,7 @@ def current_segment_id(debate: DebateState) -> str:
 
 
 def needs_opening_evidence(debate: DebateState) -> bool:
-    if opening_argument_bank_ready(debate):
+    if opening_evidence_completed(debate):
         return False
     label = debate.segment_label or ""
     segment_id = current_segment_id(debate)
@@ -140,9 +144,9 @@ async def ensure_opening_argument_bank(
         return OpeningEvidenceResult(
             added={"affirmative": 0, "negative": 0},
             sources=[],
-            ready=opening_argument_bank_ready(debate),
+            ready=opening_evidence_completed(debate),
         )
-    if opening_argument_bank_ready(debate):
+    if opening_evidence_completed(debate):
         return OpeningEvidenceResult(
             added={"affirmative": 0, "negative": 0},
             sources=[],
@@ -207,7 +211,8 @@ async def ensure_opening_argument_bank(
     if total_added["affirmative"] or total_added["negative"]:
         await apply_ai_argument_titles(debate.topic, debate.argument_bank, debate_id=debate.id)
 
-    ready = opening_argument_bank_ready(debate)
+    debate.opening_evidence_completed = True
+    ready = opening_evidence_completed(debate)
     await _emit(
         on_event,
         {

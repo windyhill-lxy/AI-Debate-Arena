@@ -19,7 +19,6 @@ from app.services.argument_bank import (
     add_sources_to_argument_bank,
     argument_count_for_side,
     argument_ids_for_side,
-    opening_argument_bank_ready,
     referenced_argument_ids,
 )
 from app.services.debate_mode import peek_next_speaker_id
@@ -33,7 +32,12 @@ from app.services.llm import (
 )
 from app.services.message_visibility import latest_any_visible_message
 from app.services.judge_report import generate_final_report
-from app.services.opening_evidence import current_segment_id, ensure_opening_argument_bank, needs_opening_evidence
+from app.services.opening_evidence import (
+    current_segment_id,
+    ensure_opening_argument_bank,
+    needs_opening_evidence,
+    opening_evidence_completed,
+)
 from app.services.rag import retrieve_sources
 from app.services.team_discussion import (
     TeamDiscussionContext,
@@ -466,7 +470,7 @@ class DebateGraph:
             on_progress=on_progress,
         )
         state["sources"] = result.sources
-        if not opening_argument_bank_ready(debate):
+        if not opening_evidence_completed(debate):
             debate.auto_running = False
             debate.awaiting_user = False
             state["opening_evidence_blocked"] = True

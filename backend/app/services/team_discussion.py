@@ -55,14 +55,6 @@ def positions_spoken_in_team_segment(debate: DebateState, side: str) -> set[int]
         position = _position_from_message(debate, message, side)
         if position is not None:
             positions.add(position)
-    if debate.phase == "opening_prep" and "队内讨论" in label:
-        task_label = "反方一辩任务分配" if side == "negative" else "一辩任务分配"
-        for message in debate.messages:
-            if message.side != side or task_label not in (message.segment_label or ""):
-                continue
-            position = _position_from_message(debate, message, side)
-            if position is not None:
-                positions.add(position)
     return positions
 
 

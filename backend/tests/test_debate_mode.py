@@ -261,7 +261,7 @@ def test_online_match_team_discussion_waits_each_connected_debater_once() -> Non
     assert needs_user_turn(debate) is False
 
 
-def test_online_match_opening_discussion_does_not_repeat_first_debater_after_task_assign() -> None:
+def test_online_match_opening_discussion_still_waits_first_debater_after_task_assign() -> None:
     debate = _debate(DebateMode.online_match)
     init_schedule(debate)
     debate.participants.append(OnlineParticipant(name="正方一辩", side="affirmative", position=1, connected=True))
@@ -288,7 +288,8 @@ def test_online_match_opening_discussion_does_not_repeat_first_debater_after_tas
         )
     )
 
-    assert needs_user_turn(debate) is False
+    assert needs_user_turn(debate) is True
+    assert debate.active_speaker_id == "aff_1"
 
 
 def test_online_match_team_discussion_waits_for_claimed_human_seat_even_if_socket_is_between_polls() -> None:
@@ -341,4 +342,24 @@ def test_opening_team_discussion_waits_for_argument_bank_before_user_turn() -> N
 
     assert needs_user_turn(debate) is False
     _fill_opening_argument_bank(debate)
+    assert needs_user_turn(debate) is True
+
+
+def test_opening_team_discussion_waits_for_evidence_flow_not_full_target() -> None:
+    debate = _debate(DebateMode.user_affirmative)
+    init_schedule(debate)
+
+    for index in range(120):
+        segment = get_segment(debate, index)
+        if segment and segment.id == "aff_opening_discussion":
+            apply_segment(debate, index)
+            break
+    else:
+        raise AssertionError("missing aff_opening_discussion segment")
+
+    debate.opening_evidence_completed = True
+    debate.argument_bank_locked = True
+    debate.argument_bank["affirmative"] = debate.argument_bank["affirmative"][:0]
+    debate.argument_bank["negative"] = debate.argument_bank["negative"][:0]
+
     assert needs_user_turn(debate) is True

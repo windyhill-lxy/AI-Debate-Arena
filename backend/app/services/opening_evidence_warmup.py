@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from app.core.time_utils import utc_now
 from app.db.mongo import get_debate
 from app.models import DebateState
-from app.services.argument_bank import add_argument_items, opening_argument_bank_ready
-from app.services.opening_evidence import ensure_opening_argument_bank
+from app.services.argument_bank import add_argument_items
+from app.services.opening_evidence import ensure_opening_argument_bank, opening_evidence_completed
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ async def run_opening_evidence_warmup_once(
     latest = DebateState.model_validate(latest_doc)
     if latest.phase == "finished" or latest.topic != topic_snapshot:
         return OpeningEvidenceWarmupResult(ready=False)
-    if opening_argument_bank_ready(latest):
+    if opening_evidence_completed(latest):
         if on_ready is not None:
             on_ready(latest.id)
         return OpeningEvidenceWarmupResult(ready=True)
@@ -65,6 +65,7 @@ async def run_opening_evidence_warmup_once(
     for side in ("affirmative", "negative"):
         add_argument_items(latest, side, warmup_state.argument_bank.get(side, []))
     latest.argument_bank_locked = latest.argument_bank_locked or warmup_state.argument_bank_locked
+    latest.opening_evidence_completed = latest.opening_evidence_completed or warmup_state.opening_evidence_completed
     latest.updated_at = utc_now()
 
     if persist_and_broadcast is not None:
@@ -73,7 +74,7 @@ async def run_opening_evidence_warmup_once(
         from app.db.mongo import save_debate
 
         await save_debate(latest.model_dump(mode="json"))
-    ready = opening_argument_bank_ready(latest)
+    ready = opening_evidence_completed(latest)
     if ready and on_ready is not None:
         on_ready(latest.id)
     return OpeningEvidenceWarmupResult(ready=ready)
