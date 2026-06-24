@@ -56,6 +56,10 @@ def test_export_markdown_includes_messages_and_sources() -> None:
         )
     )
     md = _export_markdown(debate)
+    assert "# AI辩论场复盘报告" in md
+    assert "## 一、报告摘要" in md
+    assert "## 二、关键指标" in md
+    assert "## 五、发言纪要" in md
     assert "测试辩题" in md
     assert "云汐" in md
     assert "`[kb-test]`" in md

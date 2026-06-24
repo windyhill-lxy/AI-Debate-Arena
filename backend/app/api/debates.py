@@ -233,13 +233,61 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
     }.get(mode, mode)
     aff_score = debate.score.get("affirmative", 0)
     neg_score = debate.score.get("negative", 0)
+    score_gap = abs(aff_score - neg_score)
+    leader = "双方暂时持平"
+    if aff_score > neg_score:
+        leader = f"正方暂时领先 {score_gap:.2f} 分"
+    elif neg_score > aff_score:
+        leader = f"反方暂时领先 {score_gap:.2f} 分"
     visible_agents = [agent for agent in debate.agents if agent.side in {"affirmative", "negative", "judge"}]
+    agent_by_id = {agent.id: agent for agent in visible_agents}
+    public_messages = [
+        m
+        for m in debate.messages
+        if not _is_team_discussion_message(m)
+        and not (m.side == "judge" and m.phase == "post_match" and "输出裁判报告" not in (m.segment_label or ""))
+    ]
+    internal_messages = [m for m in debate.messages if _is_team_discussion_message(m)]
+    judge_notes = [
+        m
+        for m in debate.messages
+        if m.side == "judge" and m.phase == "post_match" and "输出裁判报告" not in (m.segment_label or "")
+    ]
+
+    def _seat_for_agent(agent) -> str:
+        if not agent:
+            return ""
+        if agent.side == "judge":
+            return "裁判"
+        return f"{'正方' if agent.side == 'affirmative' else '反方'}{agent.position}辩"
+
+    def _speaker_title(m: DebateMessage) -> str:
+        agent = agent_by_id.get(m.speaker_id)
+        seat = _seat_for_agent(agent)
+        if seat and m.speaker_name and m.speaker_name != seat:
+            return f"{seat} {m.speaker_name}"
+        return seat or m.speaker_name or "系统"
+
+    def _message_scope(m: DebateMessage) -> str:
+        if _is_team_discussion_message(m):
+            return "队内讨论"
+        if m.side == "judge" and m.phase == "post_match":
+            return "裁判分析"
+        return "公开发言"
+
     lines = [
-        "# 辩论训练复盘报告",
+        "# AI辩论场复盘报告",
         "",
         f"> 辩题：**{debate.topic}**",
         "",
-        "## 比赛设置",
+        "## 一、报告摘要",
+        "",
+        (
+            "本报告整理了本场辩论的基础设置、阵容、赛程进度、发言内容、引用资料与评分信息，"
+            f"便于赛后阅读、复盘和归档。{leader}。"
+        ),
+        "",
+        "## 二、关键指标",
         "",
         "| 项目 | 内容 |",
         "| --- | --- |",
@@ -250,23 +298,21 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
         f"| TTS | {'开启' if debate.tts_enabled else '关闭'} |",
         f"| 当前环节 | {debate.phase} / {debate.segment_label} |",
         f"| 最终/当前比分 | 正方 {aff_score:.2f} · 反方 {neg_score:.2f} |",
+        f"| 发言统计 | 公开 {len(public_messages)} 条 · 队内 {len(internal_messages)} 条 · 裁判分析 {len(judge_notes)} 条 · 总计 {len(debate.messages)} 条 |",
         f"| 导出时间 | {utc_now().isoformat(timespec='seconds')} |",
         "",
-        "## 双方阵容",
+        "## 三、双方阵容",
         "",
         "| 席位 | 姓名 | 模型 | 人设摘要 |",
         "| --- | --- | --- | --- |",
     ]
     for agent in visible_agents:
-        if agent.side == "judge":
-            seat = "裁判"
-        else:
-            seat = f"{'正方' if agent.side == 'affirmative' else '反方'}{agent.position}辩"
+        seat = _seat_for_agent(agent)
         lines.append(f"| {seat} | {agent.name} | {agent.model} | {agent.persona} |")
     lines.extend(
         [
             "",
-            "## 赛程摘要",
+            "## 四、赛程概览",
             "",
             "| 进度 | 环节 | 阶段 | 状态 |",
             "| --- | --- | --- | --- |",
@@ -279,23 +325,16 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
     if debate.match_summary:
         lines.extend(["## 全场总结", "", debate.match_summary.strip(), ""])
 
-    lines.extend(["## 时间线概览", ""])
-    for index, m in enumerate(debate.messages, start=1):
-        ts = m.created_at.isoformat(timespec="seconds") if m.created_at else ""
-        scope = "队内" if _is_team_discussion_message(m) else "公开"
-        lines.append(f"{index}. [{scope}] **{m.speaker_name}** · {m.segment_label or m.phase} · `{m.side}` · {ts}")
-    lines.append("")
-
-    def _append_message_block(m: DebateMessage) -> None:
-        lines.append(f"#### {m.speaker_name} · {m.segment_label or m.phase}")
-        meta = f"`{m.side}`"
+    def _append_message_block(m: DebateMessage, index: int) -> None:
+        lines.append(f"### {index}. {_speaker_title(m)}｜{m.segment_label or m.phase}")
+        meta = f"范围：{_message_scope(m)} · 阵营：`{m.side}`"
         if m.created_at:
             meta += f" · {m.created_at.isoformat(timespec='seconds')}"
         if m.score_delta is not None:
-            meta += f" · 得分 {m.score_delta:+.2f}"
-        lines.append(f"*{meta}*")
+            meta += f" · 本轮得分 {m.score_delta:+.2f}"
+        lines.append(meta)
         lines.append("")
-        lines.append((m.content or "").strip())
+        lines.append((m.content or "").strip() or "（本条发言为空）")
         if m.score_reason:
             lines.append("")
             lines.append(f"> 评分理由：{m.score_reason}")
@@ -314,6 +353,12 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
                 lines.append(f"- 反思：{m.private_thought}")
         lines.append("")
 
+    if debate.messages:
+        lines.extend(["## 五、发言纪要", ""])
+    else:
+        lines.extend(["## 五、发言纪要", "", "本场暂未产生发言。", ""])
+
+    message_index = 1
     for section_title, predicate in (
         ("公开发言", lambda m: not _is_team_discussion_message(m) and not (m.side == "judge" and m.phase == "post_match" and "输出裁判报告" not in (m.segment_label or ""))),
         ("队内讨论", _is_team_discussion_message),
@@ -322,14 +367,15 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
         section_messages = [m for m in debate.messages if predicate(m)]
         if not section_messages:
             continue
-        lines.extend([f"## {section_title}", ""])
+        lines.extend([f"### {section_title}", ""])
         current_label = ""
         for m in section_messages:
             label = m.segment_label or m.phase
             if label != current_label:
                 current_label = label
-                lines.extend([f"### {label}", ""])
-            _append_message_block(m)
+                lines.extend([f"#### {label}", ""])
+            _append_message_block(m, message_index)
+            message_index += 1
 
     verdict = [
         m
@@ -337,13 +383,10 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
         if m.side == "judge" and "输出裁判报告" in (m.segment_label or "")
     ]
     if verdict:
-        lines.extend(["## 裁判终局报告", ""])
+        lines.extend(["## 六、裁判报告", ""])
         for m in verdict:
             lines.append((m.content or "").strip())
             lines.append("")
-
-    if not debate.messages:
-        lines.extend(["## 发言记录", "", "本场暂未产生发言。", ""])
 
     return "\n".join(lines).rstrip() + "\n"
 

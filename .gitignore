@@ -27,13 +27,24 @@ data/*.sqlite
 data/*.jsonl
 backend/data/
 *.log
+*.tmp
+*.bak
 .pytest_cache/
 backend/.pytest_cache/
 frontend/.vite/
+coverage/
+htmlcov/
+frontend/coverage/
+frontend/flow-debug.png
 
 # Local editor and agent caches
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 .cursor/
 .claude/
+.codex/
 .agents/
 backend/.agents/
 

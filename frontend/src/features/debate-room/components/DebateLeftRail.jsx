@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   FileUp,
-  Gavel,
   Lightbulb,
   Settings,
   Sparkles,
@@ -21,6 +20,7 @@ import { isHostDesktop } from "../../../utils/visitContext.js";
 import { agentSeatLabel } from "../../../utils/debateDisplay.js";
 import { MODE_LABELS, debaterLabel, resolveAvatar } from "../utils.js";
 import { VISIBILITY_MODES } from "../visibilityModes.js";
+import { resolveCurrentRoundSpeaker } from "../currentRoundSpeaker.js";
 
 const VISIBILITY_ICONS = {
   all_visible: Brain,
@@ -69,6 +69,9 @@ export default function DebateLeftRail({
 }) {
   const navigate = useNavigate();
   const visibleAgents = (debate.agents || []).filter((agent) => agent.side !== "assistant");
+  const currentRoundSpeaker = resolveCurrentRoundSpeaker(debate, activeAgent);
+  const currentRoundAvatar = resolveAvatar(currentRoundSpeaker);
+  const currentRoundLabel = agentSeatLabel(currentRoundSpeaker) || currentRoundSpeaker?.name || "当前回合";
 
   const toggleTab = (tab) => {
     setRightActiveTab?.(null);
@@ -104,8 +107,23 @@ export default function DebateLeftRail({
         </button>
         <DebateFlowViewer variant="dock" />
         <div className="dock-divider" aria-hidden="true" />
-        <button className={`dock-btn ${rightActiveTab === "turn" ? "active" : ""}`} onClick={() => toggleRightTab("turn")} title="当前回合">
-          <DockLabel icon={<Gavel size={18} />} label="回合" />
+        <button
+          className={`dock-btn ${rightActiveTab === "turn" ? "active" : ""}`}
+          onClick={() => toggleRightTab("turn")}
+          title={`当前回合：${currentRoundLabel}`}
+        >
+          <DockLabel
+            icon={
+              currentRoundAvatar ? (
+                <img className="dock-btn__avatar" src={currentRoundAvatar} alt="" />
+              ) : (
+                <span className="dock-btn__avatar dock-btn__avatar--fallback" aria-hidden="true">
+                  回
+                </span>
+              )
+            }
+            label="回合"
+          />
         </button>
         {showStrategyTab && (
           <button className={`dock-btn ${rightActiveTab === "strategy" ? "active" : ""}`} onClick={() => toggleRightTab("strategy")} title="AI 策略">

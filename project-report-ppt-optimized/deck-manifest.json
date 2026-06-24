@@ -1,0 +1,110 @@
+[
+  {
+    "file": "01-cover.html",
+    "label": "封面",
+    "section": "AI 智能体开发专项赛 · 项目报告",
+    "title": "AI辩论场"
+  },
+  {
+    "file": "02-origin.html",
+    "label": "项目缘起",
+    "section": "第一幕 · 为什么做",
+    "title": "从一场对话，到一套赛制。"
+  },
+  {
+    "file": "03-problem.html",
+    "label": "问题定义",
+    "section": "第一幕 · 问题定义",
+    "title": "辩论训练最难的，不是写稿，而是反复经历完整对抗。"
+  },
+  {
+    "file": "04-agent-thinking.html",
+    "label": "智能体理解",
+    "section": "第一幕 · 方向确立",
+    "title": "AI 的用武之地，不只是聊天，而是把概率模型流程化、约束化。"
+  },
+  {
+    "file": "05-product.html",
+    "label": "产品概览",
+    "section": "第二幕 · 系统与能力",
+    "title": "从辩题输入到裁判报告，系统跑通完整训练链路。"
+  },
+  {
+    "file": "06-user-flow.html",
+    "label": "用户路径",
+    "section": "第二幕 · 用户路径",
+    "title": "系统把复杂辩论拆成可执行、可暂停、可复盘的训练流程。"
+  },
+  {
+    "file": "07-architecture.html",
+    "label": "系统架构",
+    "section": "第二幕 · 系统设计",
+    "title": "架构不是为展示而画，而是支撑多人、实时、可复盘的辩论现场。"
+  },
+  {
+    "file": "08-agents.html",
+    "label": "多智能体",
+    "section": "第二幕 · 多智能体",
+    "title": "系统把「一个 AI 发言」拆成一支辩队的协作。"
+  },
+  {
+    "file": "09-workflow.html",
+    "label": "工作流设计",
+    "section": "第二幕 · 工作流",
+    "title": "67 个赛程段、43 个展示节点、10 个 LangGraph 节点，让辩论不是线性文本生成。"
+  },
+  {
+    "file": "10-runtime-loop.html",
+    "label": "单回合内核",
+    "section": "第二幕 · 运行时内核",
+    "title": "一段发言要经过检索、判断、反思与核查，不是直接把辩题丢给模型。"
+  },
+  {
+    "file": "11-anti-hallucination.html",
+    "label": "防幻觉机制",
+    "section": "第二幕 · 防幻觉工程",
+    "title": "AI 辩论最危险的地方，是「听起来很有道理」。"
+  },
+  {
+    "file": "12-context.html",
+    "label": "上下文权限",
+    "section": "第二幕 · 权限与可见性",
+    "title": "不是所有 AI 都该看到所有信息，权限边界本身就是系统能力。"
+  },
+  {
+    "file": "13-human-ai.html",
+    "label": "人机协同",
+    "section": "第二幕 · 人机协同",
+    "title": "系统刻意保留学生的发言权，让 AI 做陪练、资料官和教练。"
+  },
+  {
+    "file": "14-cross-device.html",
+    "label": "跨端部署",
+    "section": "第三幕 · 工程实现",
+    "title": "同一套系统覆盖电脑主持、手机加入、桌面发行和弱环境演示。"
+  },
+  {
+    "file": "15-engineering.html",
+    "label": "工程成果",
+    "section": "第三幕 · 开发与测试",
+    "title": "项目不只完成演示界面，也补齐了测试、导出、回放和运维入口。"
+  },
+  {
+    "file": "16-score-map.html",
+    "label": "评分映射",
+    "section": "第四幕 · 对标评分标准",
+    "title": "这份作品的关键能力，逐项对应专项赛评分维度。"
+  },
+  {
+    "file": "17-reflection.html",
+    "label": "反思与展望",
+    "section": "第四幕 · 反思",
+    "title": "我们没有把所有事情一次做满，而是先把「可信的辩论工作流」做扎实。"
+  },
+  {
+    "file": "18-closing.html",
+    "label": "封底",
+    "section": "AI DEBATE ARENA",
+    "title": "让思辨可被看见，论据可被验证，过程可被复盘。"
+  }
+]

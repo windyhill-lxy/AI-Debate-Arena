@@ -104,20 +104,85 @@ export function stripMarkdownForSubtitle(text) {
 }
 
 export function buildClientHistoryMarkdown(debate) {
+  const scoreAff = Number(debate.score?.affirmative || 0);
+  const scoreNeg = Number(debate.score?.negative || 0);
+  const messages = debate.messages || [];
+  const publicCount = messages.filter((m) => isPublicStageMessage(m)).length;
+  const internalCount = messages.filter((m) => isTeamDiscussion(m)).length;
+  const winner =
+    scoreAff === scoreNeg
+      ? "暂未分出优势方"
+      : scoreAff > scoreNeg
+        ? `正方暂时领先 ${(scoreAff - scoreNeg).toFixed(2)} 分`
+        : `反方暂时领先 ${(scoreNeg - scoreAff).toFixed(2)} 分`;
   const lines = [
-    `# ${debate.topic}`,
+    "# AI辩论场复盘报告",
     "",
-    `- 模式: ${debate.mode}`,
-    `- 环节: ${debate.phase} / ${debate.segment_label}`,
-    `- 比分: 正方 ${Number(debate.score?.affirmative || 0).toFixed(2)} · 反方 ${Number(debate.score?.negative || 0).toFixed(2)}`,
+    `> 辩题：**${debate.topic || "未命名辩题"}**`,
     "",
+    "## 一、报告摘要",
+    "",
+    `本报告整理了本场辩论的基础设置、阵容、关键比分与发言纪要，便于赛后阅读、复盘和归档。${winner}。`,
+    "",
+    "## 二、关键指标",
+    "",
+    "| 指标 | 内容 |",
+    "| --- | --- |",
+    `| 模式 | ${debate.mode || "未记录"} |`,
+    `| 当前环节 | ${debate.phase || "未记录"} / ${debate.segment_label || "未记录"} |`,
+    `| 赛制 | ${debate.schedule_template || "默认赛制"} |`,
+    `| 比分 | 正方 ${scoreAff.toFixed(2)} · 反方 ${scoreNeg.toFixed(2)} |`,
+    `| 发言统计 | 公开 ${publicCount} 条 · 队内 ${internalCount} 条 · 总计 ${messages.length} 条 |`,
+    `| 导出时间 | ${new Date().toLocaleString("zh-CN", { hour12: false })} |`,
+    "",
+    "## 三、阵容",
+    "",
+    "| 席位 | 名称 | 模型 |",
+    "| --- | --- | --- |",
   ];
-  if (debate.match_summary) {
-    lines.push("## 全场总结", "", debate.match_summary, "");
+  for (const agent of (debate.agents || []).filter((agent) => agent.side !== "assistant")) {
+    lines.push(`| ${agentSeatLabel(agent) || agent.name || "未命名席位"} | ${agent.name || "未命名"} | ${agent.model || "未记录"} |`);
   }
-  lines.push("## 完整记录", "");
-  for (const m of debate.messages || []) {
-    lines.push(`### ${m.speaker_name} · ${m.segment_label || m.phase}`, "", m.content || "", "");
+  if (!(debate.agents || []).length) {
+    lines.push("| 未记录 | 未记录 | 未记录 |");
+  }
+  lines.push("");
+
+  if (debate.match_summary) {
+    lines.push("## 四、全场总结", "", debate.match_summary.trim(), "");
+  } else {
+    lines.push("## 四、全场总结", "", "本场暂未生成全场总结。", "");
+  }
+
+  lines.push("## 五、发言纪要", "");
+  if (!messages.length) {
+    lines.push("本场暂未产生发言记录。", "");
+  }
+  messages.forEach((m, index) => {
+    const scope = isTeamDiscussion(m) ? "队内讨论" : isJudgeThought(m) ? "裁判思考" : "公开发言";
+    const speaker = displaySpeakerName(m, debate);
+    lines.push(`### ${index + 1}. ${speaker}｜${m.segment_label || m.phase || "未命名环节"}`, "");
+    lines.push(`范围：${scope} · 阵营：${m.side || "未记录"}${m.score_delta != null ? ` · 本轮得分 ${Number(m.score_delta).toFixed(2)}` : ""}`);
+    lines.push("");
+    lines.push((m.content || "").trim() || "（本条发言为空）");
+    if (m.score_reason) {
+      lines.push("", `> 评分理由：${m.score_reason}`);
+    }
+    if (m.sources?.length) {
+      lines.push("", "**引用资料**");
+      for (const source of m.sources) {
+        lines.push(`- \`[${source.id || "source"}]\` ${source.title || "未命名资料"}：${source.excerpt || "无摘要"}`);
+      }
+    }
+    lines.push("");
+  });
+
+  const verdicts = messages.filter((m) => m.side === "judge" && (m.segment_label || "").includes("输出裁判报告"));
+  if (verdicts.length) {
+    lines.push("## 六、裁判报告", "");
+    for (const m of verdicts) {
+      lines.push((m.content || "").trim(), "");
+    }
   }
   return lines.join("\n").trim() + "\n";
 }

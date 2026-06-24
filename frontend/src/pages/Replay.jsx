@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Download, Pause, Play, SkipForward, Volume2 } from "lucide-react";
-import CopyShareLinkButton from "../components/CopyShareLinkButton.jsx";
 import MarkdownBody from "../components/MarkdownBody.jsx";
 import { buildShareUrl } from "../utils/shareLink.js";
 import { useAudioQueue } from "../hooks/useAudioQueue.js";
@@ -155,7 +154,6 @@ export default function Replay({ shareMode = false }) {
           </p>
         </div>
         <div className="replay-header__actions">
-          <CopyShareLinkButton debateId={id} label={shareMode ? "复制此链接" : "复制分享链接"} />
           <button
             type="button"
             className="export-md-btn"

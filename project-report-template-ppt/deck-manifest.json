@@ -1,0 +1,50 @@
+[
+  {
+    "file": "01-title.html",
+    "label": "标题",
+    "section": "PROJECT TEMPLATE",
+    "title": "AI辩论场"
+  },
+  {
+    "file": "02-origin.html",
+    "label": "项目制作缘由",
+    "section": "01",
+    "title": "项目制作缘由"
+  },
+  {
+    "file": "03-function.html",
+    "label": "功能基本介绍",
+    "section": "02",
+    "title": "功能基本介绍"
+  },
+  {
+    "file": "04-highlights.html",
+    "label": "项目亮点",
+    "section": "03",
+    "title": "项目亮点"
+  },
+  {
+    "file": "05-development.html",
+    "label": "开发历程",
+    "section": "04",
+    "title": "开发历程"
+  },
+  {
+    "file": "06-interview.html",
+    "label": "辩论社员访谈",
+    "section": "05",
+    "title": "辩论社员访谈"
+  },
+  {
+    "file": "07-improve.html",
+    "label": "改进",
+    "section": "06",
+    "title": "改进"
+  },
+  {
+    "file": "08-closing.html",
+    "label": "结尾",
+    "section": "END",
+    "title": "结尾"
+  }
+]
