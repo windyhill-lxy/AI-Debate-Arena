@@ -1,5 +1,6 @@
 import { PHASE_NAMES, portraitById, demoAgents } from "../../data/agents";
 import { MODE_LABELS } from "./constants.js";
+import { agentSeatLabel, debaterPositionLabel } from "../../utils/debateDisplay.js";
 
 export { MODE_LABELS };
 
@@ -12,6 +13,8 @@ export function phaseName(phase) {
 }
 
 export function debaterLabel(agent) {
+  const seat = agentSeatLabel(agent);
+  if (seat) return seat;
   if (!agent?.position) return sideName(agent?.side);
   const side = agent.side === "affirmative" ? "正方" : "反方";
   return `${side}${["", "一", "二", "三", "四"][agent.position]}辩`;
@@ -63,6 +66,23 @@ export function isTeamDiscussionSegment(debate) {
   return label.includes("队内讨论");
 }
 
+export function openingArgumentBankReady(debate) {
+  if (typeof debate?.opening_argument_bank_ready === "boolean") {
+    return debate.opening_argument_bank_ready;
+  }
+  const target = debate?.opening_argument_target_per_side || 10;
+  return ["affirmative", "negative"].every(
+    (side) => (debate?.argument_bank?.[side] || []).length >= target,
+  );
+}
+
+export function openingArgumentBankStatus(debate) {
+  const target = debate?.opening_argument_target_per_side || 10;
+  const aff = (debate?.argument_bank?.affirmative || []).length;
+  const neg = (debate?.argument_bank?.negative || []).length;
+  return { target, aff, neg };
+}
+
 function userSpokeInCurrentSegment(debate) {
   const label = debate?.segment_label || "";
   return (debate?.messages || []).some(
@@ -79,6 +99,9 @@ function teamDiscussionSideFromLabel(debate) {
 
 export function needsUserTurn(debate, participant = null) {
   const internalTeamPhase = isInternalPrepPhase(debate);
+  if (debate?.phase === "opening_prep" && isTeamDiscussionSegment(debate) && !openingArgumentBankReady(debate)) {
+    return false;
+  }
   if (debate.mode === "online_match") {
     if (internalTeamPhase && !isUserTaskAssignSegment(debate) && !isTeamDiscussionSegment(debate)) return false;
     if (participant) return debate.active_speaker_id === participantSpeakerId(participant);
@@ -140,6 +163,26 @@ export function getDebateProgressHint({ autoRunning, speechInputState, debate })
   return debate?.awaiting_user ? "等待您的发言" : "待机";
 }
 
+export function formatPipelineHint(hint) {
+  if (!hint) return "";
+  if (typeof hint === "string") return hint;
+  if (hint.type === "argument_bank_updated") {
+    return hint.detail || `论据库已更新：正方 ${hint.affirmativeCount || 0} 条，反方 ${hint.negativeCount || 0} 条。`;
+  }
+  if (hint.type === "workflow_progress") {
+    const seat = debaterPositionLabel(hint.speakerId, demoAgents) || (hint.side === "judge" ? "裁判" : hint.speakerName);
+    return `当前节点：${hint.nodeLabel || "流程节点"}；调用：${seat || "系统"}`;
+  }
+  if (hint.type === "pipeline_prep") {
+    const seat = debaterPositionLabel(hint.speakerId, demoAgents) || hint.speakerName || "下一位 AI";
+    return hint.detail || `${seat} 正在预热 ${hint.sourcesCount || 0} 条资料。`;
+  }
+  if (hint.type === "reflection_done") {
+    return hint.detail || "反思定稿完成。";
+  }
+  return hint.detail || hint.nodeLabel || "";
+}
+
 export function getSpeechInputState({
   debate,
   participant,
@@ -179,6 +222,15 @@ export function getSpeechInputState({
           )
         : Boolean(debate.awaiting_user || needsUserTurn(debate));
   if (isInternalPrepPhase(debate) && isTeamDiscussionSegment(debate) && !isYourTurn) {
+    if (debate.phase === "opening_prep" && !openingArgumentBankReady(debate)) {
+      const { target, aff, neg } = openingArgumentBankStatus(debate);
+      return {
+        canSubmit: false,
+        reason: `正在搜集论据库：正方 ${aff}/${target}，反方 ${neg}/${target}，完成后进入队内讨论`,
+        phaseHint,
+        isYourTurn: false,
+      };
+    }
     return {
       canSubmit: false,
       reason: "队内讨论中，请等待轮到您在本方队内窗口发言",
@@ -207,19 +259,6 @@ export function getSpeechInputState({
     phaseHint,
     isYourTurn: true,
   };
-}
-
-export function workflowStage(node) {
-  if (node.stage) return node.stage;
-  if (node.id?.startsWith("free_") || node.id?.includes("realtime")) return "自由辩论环节";
-  if (node.id?.includes("closing")) return "总结陈词环节";
-  if (node.id?.includes("judge") || node.id?.includes("verdict") || node.id?.includes("winner")) {
-    return "裁判最终裁决";
-  }
-  if (node.id?.includes("rag") || node.id?.includes("speech") || node.id?.includes("fact")) {
-    return "立论/驳论/总结";
-  }
-  return "赛前准备";
 }
 
 export function getAgent(debate, speakerId) {

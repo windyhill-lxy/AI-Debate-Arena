@@ -14,6 +14,7 @@ from app.api.confidence_monitor import router as confidence_monitor_router
 from app.api.tunnel import router as tunnel_router
 from app.api.debates import router as debates_router
 from app.core.config import get_settings
+from app.core.error_handlers import register_error_handlers
 from app.core.logging_config import configure_logging
 from app.core.middleware_request_id import RequestIdMiddleware
 from app.core.rate_limit import init_rate_limiters
@@ -55,6 +56,7 @@ async def lifespan(_: FastAPI):
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+register_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

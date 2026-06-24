@@ -119,8 +119,13 @@ export function useDebateSocket(debateId, handlers, options = {}) {
         const debate = await fetchDebateSnapshot(debateId, optionsRef.current);
         handlersRef.current.onDebate?.(debate);
         handlersRef.current.onReconnected?.(debate);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        handlersRef.current.onTransportError?.({
+          title: "同步房间快照失败",
+          message: error.message || "实时连接已恢复，但快照同步失败。",
+          source: "useDebateSocket.snapshot",
+          code: "snapshot_sync_failed",
+        });
       }
     };
 
@@ -158,6 +163,12 @@ export function useDebateSocket(debateId, handlers, options = {}) {
           setConnectionState("degraded");
           setReconnecting(true);
           setLastError("websocket_error");
+          handlersRef.current.onTransportError?.({
+            title: "WebSocket 连接异常",
+            message: "实时连接异常，系统将尝试自动重连。",
+            source: "useDebateSocket.onerror",
+            code: "websocket_error",
+          });
         }
       };
 
@@ -202,13 +213,40 @@ export function useDebateSocket(debateId, handlers, options = {}) {
           if (ev === "speech_audio_error") h.onSpeechAudioError?.(data);
           if (ev === "error") h.onError?.(data);
           if (ev === "pipeline_prep") h.onPipelinePrep?.(data);
+          if (ev === "workflow_progress") h.onWorkflowProgress?.(data);
+          if (ev === "argument_bank_updated") h.onArgumentBankUpdated?.(data);
+          if (ev === "argument_bank_seeded") h.onArgumentBankUpdated?.(data);
           if (ev === "reflection_done") h.onReflectionDone?.(data);
           if (data.type === "webrtc_signal" || ev === "webrtc_signal") {
-            webrtcListenersRef.current.forEach((listener) => listener(data));
+            webrtcListenersRef.current.forEach((listener) => {
+              try {
+                Promise.resolve(listener(data)).catch((error) => {
+                  h.onTransportError?.({
+                    title: "视频连线信令处理失败",
+                    message: error?.message || "视频连线收到过期或乱序信令，已自动跳过。",
+                    source: "useDebateSocket.webrtc_listener",
+                    code: "webrtc_listener_failed",
+                  });
+                });
+              } catch (error) {
+                h.onTransportError?.({
+                  title: "视频连线信令处理失败",
+                  message: error?.message || "视频连线收到过期或乱序信令，已自动跳过。",
+                  source: "useDebateSocket.webrtc_listener",
+                  code: "webrtc_listener_failed",
+                });
+              }
+            });
             h.onWebRtcSignal?.(data);
           }
-        } catch {
-          /* ignore malformed */
+        } catch (error) {
+          handlersRef.current.onTransportError?.({
+            title: "实时消息解析失败",
+            message: "收到无法解析的实时消息，已跳过本条。",
+            details: error.message,
+            source: "useDebateSocket.onmessage",
+            code: "websocket_payload_parse",
+          });
         }
       };
     };

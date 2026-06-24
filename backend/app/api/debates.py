@@ -34,8 +34,12 @@ from app.models import (
 )
 from app.services.auto_runner import resume_auto, start_auto, stop_auto
 from app.services.asr import ASRError, recognize_speech
-from app.services.argument_bank import add_message_arguments_to_bank, add_sources_to_argument_bank, enforce_argument_citations
-from app.services.camera_speech_scoring import apply_camera_speech_score
+from app.services.argument_bank import (
+    add_argument_items,
+    add_sources_to_argument_bank_with_ai_titles,
+    enforce_argument_citations,
+    opening_argument_bank_ready,
+)
 from app.services.changelog import append_changelog, ensure_project_index
 from app.services.confidence_monitor_manager import manager as confidence_manager
 from app.services.debate_mode import (
@@ -44,11 +48,11 @@ from app.services.debate_mode import (
     is_user_task_assign_segment,
     is_user_team_discussion_segment,
     needs_user_turn,
+    opening_team_discussion_ready,
     participant_speaker_id,
     user_side_for_mode,
-    user_speaker_id,
 )
-from app.services.speech_timeout import apply_timeout_penalty_if_needed, clear_user_wait, mark_user_wait_start
+from app.services.speech_timeout import clear_user_wait, mark_user_wait_start
 from app.services.debate_schedule import init_schedule
 from app.services.assist import generate_assist, generate_assist_stream_events
 from app.services.draft_assist import generate_draft, generate_draft_stream_events
@@ -56,19 +60,29 @@ from app.services.export_pdf import markdown_to_pdf_bytes
 from app.services.host_control_auth import issue_host_token, verify_host_token
 from app.services.online_session import create_session as create_online_session_id, get_session, link_session
 from app.services.llm_usage import get_debate_llm_stats
-from app.services.user_message_scoring import score_user_public_message
 from app.services.user_speech_judge import UserSpeechReview, review_user_speech
 from app.services.rag import index_debate_topic, ingest_materials, retrieve_sources
-from app.services.runtime_settings import RuntimeSettings, apply_runtime_settings, load_runtime_settings, mask_key
+from app.services.runtime_settings import RuntimeSettings, apply_runtime_settings, load_runtime_settings, mask_key, merged_api_keys
 from app.services.schedule_config import list_schedule_templates_meta
 from app.services.training import analyze_opening_draft, auto_improve_opening_draft, auto_improve_opening_draft_events, polish_opening_draft
 from app.services import presence
 from app.services.realtime import manager
 from app.services.ops_events import append_ops_event
+from app.services.opening_evidence_warmup import cancel_opening_evidence_warmup, start_opening_evidence_warmup
+from app.services.user_turn_flow import accept_user_message, speaker_id_for_user_message
 from app.workflow.debate_graph import debate_graph
 
 router = APIRouter(prefix="/api/debates", tags=["debates"])
 logger = logging.getLogger(__name__)
+
+
+def warm_opening_evidence(debate: DebateState) -> None:
+    start_opening_evidence_warmup(
+        debate.id,
+        debate.topic,
+        persist_and_broadcast=_persist_and_broadcast,
+        on_ready=resume_auto,
+    )
 
 
 async def _index_debate_materials_background(
@@ -347,11 +361,11 @@ def _side_from_text(text: str) -> str:
 def _phase_from_label(label: str) -> str:
     if "自由辩论" in label:
         return "free_debate"
-    if "盘问" in label or "质询" in label:
+    if "质辩" in label or "盘问" in label or "质询" in label:
         return "cross_examination"
     if "总结" in label:
         return "closing"
-    if "驳论" in label or "对辩" in label:
+    if "驳立论" in label or "驳论" in label or "对辩" in label:
         return "rebuttal"
     if "立论" in label:
         return "opening_statement"
@@ -371,9 +385,7 @@ def _normalize_user_content(content: str) -> str:
 
 
 def _speaker_id_for_user_message(debate: DebateState, participant: OnlineParticipant | None, payload: UserMessageCreate) -> str:
-    if participant is not None:
-        return participant_speaker_id(participant) or payload.speaker_id
-    return user_speaker_id(debate) or payload.speaker_id
+    return speaker_id_for_user_message(debate, participant, payload)
 
 
 def _is_internal_user_turn(debate: DebateState, payload: UserMessageCreate) -> bool:
@@ -411,73 +423,16 @@ async def _accept_user_message(
     public_debate: bool,
 ) -> DebateState:
     """统一入库用户发言：恰当则加分，不当则静默扣分并推进（赛中不插播裁判警告）。"""
-    from app.services.debate_schedule import advance_schedule
-    from app.services.rag import retrieve_sources
-    from app.services.user_message_scoring import score_user_public_message
-
-    sources = retrieve_sources(debate.topic, payload.content, debate_id=debate.id) if review.acceptable else []
-    speaker_id = _speaker_id_for_user_message(debate, participant, payload)
     internal = _is_internal_user_turn(debate, payload)
-
-    message = DebateMessage(
-        debate_id=debate.id,
-        speaker_id=speaker_id,
-        speaker_name=payload.speaker_name,
-        side=payload.side,
-        content=payload.content,
-        phase=debate.phase,
-        segment_label=debate.segment_label,
-        sources=sources[:2] if review.acceptable else [],
-        speech_flag="ok" if review.acceptable else "inappropriate",
-        review_reason=(review.reason or "发言不符合赛制要求") if not review.acceptable else None,
+    debate = await accept_user_message(
+        debate,
+        payload,
+        participant,
+        review=review,
+        public_debate=public_debate,
+        internal=internal,
+        camera_status=confidence_manager.status(),
     )
-
-    if review.acceptable:
-        if public_debate:
-            score_user_public_message(debate, message, sources)
-    else:
-        reason = review.reason or "发言不符合赛制要求"
-        if internal:
-            penalty = 0.0
-            message.score_reason = f"队内讨论质量不佳：{reason}"
-        else:
-            penalty = review.penalty if review.penalty > 0 else 0.5
-            debate.score[payload.side] = debate.score.get(payload.side, 0) - penalty
-            message.score_delta = -round(penalty, 2)
-            message.score_reason = f"发言不当已记录并扣分：{reason} -{penalty:.2f}"
-
-    timeout_delta, timeout_reason = apply_timeout_penalty_if_needed(debate, payload.side)
-    if timeout_delta:
-        message.score_delta = round((message.score_delta or 0.0) + timeout_delta, 2)
-        message.score_reason = "；".join(
-            part for part in [message.score_reason, timeout_reason] if part
-        )
-    if public_debate:
-        camera_status = confidence_manager.status()
-        if camera_status.running and camera_status.latest_sample:
-            camera_delta, camera_reason = apply_camera_speech_score(
-                debate,
-                payload.side,
-                camera_status.session_log_path,
-                since_ts=camera_status.session_started_at or None,
-            )
-            if camera_delta:
-                message.score_delta = round((message.score_delta or 0.0) + camera_delta, 2)
-                message.score_reason = "；".join(
-                    part for part in [message.score_reason, camera_reason] if part
-                )
-
-    debate.messages.append(message)
-    add_message_arguments_to_bank(debate, message)
-    debate.awaiting_user = False
-    clear_user_wait(debate)
-    debate.user_draft = ""
-    debate.updated_at = utc_now()
-    debate.turn_index += 1
-
-    if not (internal and is_user_team_discussion_segment(debate)):
-        advance_schedule(debate)
-        debate.schedule = build_schedule_status(debate.schedule_index, debate.schedule_template)
 
     debate = await _persist_and_broadcast(debate, "message_added")
     changelog_title = (
@@ -489,7 +444,8 @@ async def _accept_user_message(
         changelog_title,
         f"房间 `{debate.id}` · {payload.speaker_name}（{payload.side}）\n\n{payload.content[:500]}",
     )
-    resume_auto(debate.id)
+    if not debate.awaiting_user:
+        resume_auto(debate.id)
     return debate
 
 
@@ -616,9 +572,10 @@ async def schedule_templates() -> dict:
 @router.get("/runtime-settings")
 async def runtime_settings() -> dict:
     saved = load_runtime_settings()
+    api_keys = merged_api_keys(saved)
     return {
-        "api_keys": saved.api_keys,
-        "api_key_masks": {provider: mask_key(value) for provider, value in saved.api_keys.items()},
+        "api_keys": api_keys,
+        "api_key_masks": {provider: mask_key(value) for provider, value in api_keys.items()},
         "models": saved.models,
         "defaults": saved.defaults,
     }
@@ -627,9 +584,11 @@ async def runtime_settings() -> dict:
 @router.put("/runtime-settings")
 async def update_runtime_settings(payload: RuntimeSettings) -> dict:
     saved = apply_runtime_settings(payload)
+    api_keys = merged_api_keys(saved)
     return {
         "status": "saved",
-        "api_key_masks": {provider: mask_key(value) for provider, value in saved.api_keys.items()},
+        "api_keys": api_keys,
+        "api_key_masks": {provider: mask_key(value) for provider, value in api_keys.items()},
         "models": saved.models,
         "defaults": saved.defaults,
     }
@@ -638,6 +597,58 @@ async def update_runtime_settings(payload: RuntimeSettings) -> dict:
 @router.post("/demo")
 async def removed_demo_debate() -> None:
     raise HTTPException(status_code=404, detail="快速演示模式已移除")
+
+
+def _merge_opening_evidence_from_prep(debate: DebateState, prep: DebateState | None) -> None:
+    if prep is None or prep.topic != debate.topic:
+        return
+    for side in ("affirmative", "negative"):
+        add_argument_items(debate, side, prep.argument_bank.get(side, []))
+    debate.argument_bank_locked = debate.argument_bank_locked or prep.argument_bank_locked
+
+
+@router.post("/opening-evidence-prep", dependencies=[Depends(enforce_create_room_limit)])
+async def prepare_opening_evidence(payload: DebateCreate) -> dict:
+    prep = DebateState(
+        topic=payload.topic,
+        mode=payload.mode,
+        visibility=_visibility_for_created_room(payload),
+        timing=payload.timing,
+        turn_seconds=payload.turn_seconds,
+        format=payload.format,
+        schedule_template=payload.schedule_template or "formal_4v4",
+        agents=default_agents(),
+        workflow=workflow_template(),
+        auto_running=False,
+    )
+    init_schedule(prep)
+    prep.schedule = build_schedule_status(prep.schedule_index, prep.schedule_template)
+    for material in payload.materials:
+        if not material.content.strip():
+            continue
+        material_sources = ingest_materials(
+            debate_id=prep.id,
+            title=material.title or "辩题参考资料",
+            content=material.content,
+        )
+        await add_sources_to_argument_bank_with_ai_titles(prep, material_sources)
+    await _persist_and_broadcast(prep, "opening_evidence_prep_created")
+    warm_opening_evidence(prep)
+    return {
+        "prep_id": prep.id,
+        "topic": prep.topic,
+        "opening_argument_bank_ready": opening_argument_bank_ready(prep),
+        "argument_bank": {
+            side: [item.model_dump(mode="json") for item in prep.argument_bank.get(side, [])]
+            for side in ("affirmative", "negative")
+        },
+    }
+
+
+@router.delete("/opening-evidence-prep/{prep_id}")
+async def cancel_opening_evidence_prep(prep_id: str) -> dict:
+    cancel_opening_evidence_warmup(prep_id)
+    return {"status": "cancelled", "prep_id": prep_id}
 
 
 @router.post("/opening-training/analyze")
@@ -723,7 +734,11 @@ async def create_debate(payload: DebateCreate) -> dict:
             title=material.title or "辩题参考资料",
             content=material.content,
         )
-        add_sources_to_argument_bank(debate, material_sources)
+        await add_sources_to_argument_bank_with_ai_titles(debate, material_sources)
+    if payload.opening_evidence_prep_id:
+        prep_doc = await get_debate(payload.opening_evidence_prep_id)
+        prep = DebateState.model_validate(prep_doc) if prep_doc is not None else None
+        _merge_opening_evidence_from_prep(debate, prep)
 
     if payload.mode == DebateMode.online_match:
         debate.online_ready = False
@@ -760,6 +775,7 @@ async def create_debate(payload: DebateCreate) -> dict:
         host_token = None
 
     debate = await _persist_and_broadcast(debate, create_event)
+    warm_opening_evidence(debate)
     if debate.auto_running:
         start_auto(debate.id)
     asyncio.create_task(_index_debate_materials_background(payload.topic, debate.id, []))
@@ -966,11 +982,14 @@ async def join_debate_participant(debate_id: str, payload: ParticipantJoin, requ
 
     debate.updated_at = utc_now()
     debate = await _persist_and_broadcast(debate, "participant_joined")
+    participant_payload = participant.model_dump(mode="json")
+    response_debate = _payload_for_viewer_request(debate, participant_id=participant.id)
+
     if debate.mode == DebateMode.online_match and debate.online_ready and debate.auto_running:
         resume_auto(debate.id)
     return {
-        "participant": participant.model_dump(mode="json"),
-        "debate": _payload_for_viewer_request(debate, participant_id=participant.id),
+        "participant": participant_payload,
+        "debate": response_debate,
     }
 
 
@@ -998,11 +1017,12 @@ async def mark_online_ready(
     ):
         debate.auto_running = True
     debate = await _persist_and_broadcast(debate, "online_ready")
+    response_debate = _payload_for_viewer_request(debate)
     if debate.auto_running:
         resume_auto(debate.id)
     return {
         "online_ready": True,
-        "debate": _payload_for_viewer_request(debate),
+        "debate": response_debate,
     }
 
 
@@ -1033,14 +1053,16 @@ async def kick_participant(
     presence.cancel_pending_offline(debate_id, participant_id)
     await manager.disconnect_participant(debate_id, participant_id)
     debate = await _persist_and_broadcast(debate, "participant_kicked")
+    participant_name = participant.name
+    response_debate = _payload_for_viewer_request(debate)
     append_ops_event(
         "host_control",
         "主持人移出联机成员",
         debate_id=debate_id,
         participant_id=participant_id,
-        participant_name=participant.name,
+        participant_name=participant_name,
     )
-    return {"status": "kicked", "participant_id": participant_id, "debate": _payload_for_viewer_request(debate)}
+    return {"status": "kicked", "participant_id": participant_id, "debate": response_debate}
 
 
 @router.get("/{debate_id}/export.md", response_class=PlainTextResponse)
@@ -1129,7 +1151,7 @@ async def upload_debate_materials(
         replace=payload.replace,
     )
     debate = _state_from_doc(doc)
-    added = add_sources_to_argument_bank(debate, sources)
+    added = await add_sources_to_argument_bank_with_ai_titles(debate, sources)
     debate.updated_at = utc_now()
     await save_debate(debate.model_dump(mode="json"))
     await cache_set(f"debate:{debate.id}", debate.model_dump(mode="json"))
@@ -1167,7 +1189,7 @@ async def upload_debate_materials_file(
         replace=replace,
     )
     debate = _state_from_doc(doc)
-    added = add_sources_to_argument_bank(debate, sources)
+    added = await add_sources_to_argument_bank_with_ai_titles(debate, sources)
     debate.updated_at = utc_now()
     await save_debate(debate.model_dump(mode="json"))
     await cache_set(f"debate:{debate.id}", debate.model_dump(mode="json"))
@@ -1233,6 +1255,14 @@ async def post_user_message(debate_id: str, payload: UserMessageCreate, request:
     internal_prep = debate.phase in {"opening_prep", "free_prep", "closing_prep"}
     if internal_prep and not is_user_task_assign_segment(debate) and not is_user_team_discussion_segment(debate):
         raise HTTPException(status_code=400, detail="当前为队内准备环节，无需用户发言")
+    if not opening_team_discussion_ready(debate):
+        debate.awaiting_user = False
+        debate.auto_running = True
+        clear_user_wait(debate)
+        debate.updated_at = utc_now()
+        await _persist_and_broadcast(debate, "opening_argument_bank_required")
+        resume_auto(debate.id)
+        raise HTTPException(status_code=409, detail="论据库尚未搜集完成，请等待正反方论据各达到 10 条后再进入队内讨论")
     if not needs_user_turn(debate) and not debate.awaiting_user:
         raise HTTPException(status_code=400, detail="当前环节不需要用户发言")
 
@@ -1350,7 +1380,7 @@ async def assist_user(debate_id: str, payload: AssistRequest, request: Request) 
     debate = _state_from_doc(doc)
     if debate.mode == DebateMode.ai_autonomous:
         raise HTTPException(status_code=400, detail="AI 自主模式不提供用户辅助")
-    return await generate_assist(debate, payload.side, payload.draft)
+    return await generate_assist(debate, payload.side, payload.draft, payload.position)
 
 
 @router.post("/{debate_id}/assist/stream")
@@ -1364,7 +1394,7 @@ async def assist_user_stream(debate_id: str, payload: AssistRequest, request: Re
         raise HTTPException(status_code=400, detail="AI 自主模式不提供用户辅助")
 
     async def event_stream():
-        async for event in generate_assist_stream_events(debate, payload.side, payload.draft):
+        async for event in generate_assist_stream_events(debate, payload.side, payload.draft, payload.position):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         yield "data: {\"type\":\"end\"}\n\n"
 
@@ -1381,7 +1411,7 @@ async def assist_draft(debate_id: str, payload: AssistRequest, request: Request)
     debate = _state_from_doc(doc)
     if debate.mode == DebateMode.ai_autonomous:
         raise HTTPException(status_code=400, detail="AI 自主模式不提供用户辅助")
-    return await generate_draft(debate, payload.side, payload.draft)
+    return await generate_draft(debate, payload.side, payload.draft, payload.position)
 
 
 @router.post("/{debate_id}/assist/draft/stream")
@@ -1395,7 +1425,7 @@ async def assist_draft_stream(debate_id: str, payload: AssistRequest, request: R
         raise HTTPException(status_code=400, detail="AI 自主模式不提供用户辅助")
 
     async def event_stream():
-        async for event in generate_draft_stream_events(debate, payload.side, payload.draft):
+        async for event in generate_draft_stream_events(debate, payload.side, payload.draft, payload.position):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         yield "data: {\"type\":\"end\"}\n\n"
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
@@ -26,10 +28,41 @@ def _patch_background_services() -> None:
     with (
         patch("app.main.recover_auto_runners", new_callable=AsyncMock, return_value=0),
         patch("app.api.debates.start_auto"),
+        patch("app.api.debates.resume_auto"),
+        patch("app.api.debates.stop_auto"),
+        patch("app.api.admin.resume_auto"),
+        patch("app.api.admin.stop_auto"),
         patch("app.api.debates.append_changelog"),
         patch("app.api.debates.ensure_project_index"),
         patch("app.services.rag.init_vector_index"),
     ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _patch_argument_bank_title_llm() -> None:
+    async def fake_title_summary(messages, **_kwargs):
+        from app.services.argument_bank import short_argument_title
+
+        prompt = messages[-1]["content"] if messages else ""
+        match = re.search(r"论据：(\[[\s\S]*\])", prompt)
+        rows = []
+        if match:
+            try:
+                rows = json.loads(match.group(1))
+            except json.JSONDecodeError:
+                rows = []
+        titles = [
+            {
+                "id": str(row.get("id") or ""),
+                "title": short_argument_title(str(row.get("claim") or "")),
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
+        return json.dumps({"titles": titles}, ensure_ascii=False)
+
+    with patch("app.services.argument_bank.chat_completion", side_effect=fake_title_summary):
         yield
 
 

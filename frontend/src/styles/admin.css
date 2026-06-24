@@ -348,6 +348,34 @@
   font-size: 13px;
 }
 
+.runtime-settings-field small {
+  color: #806b57;
+  font-size: 11px;
+}
+
+.runtime-settings-secret {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.runtime-settings-secret input {
+  flex: 1;
+}
+
+.runtime-settings-eye {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #d9c8b8;
+  background: #fffaf5;
+  color: #5b4bb7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
 @media (max-width: 720px) {
   .runtime-settings-grid,
   .runtime-settings-grid--models {

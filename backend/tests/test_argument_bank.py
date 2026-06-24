@@ -4,10 +4,12 @@ from app.services.argument_bank import (
     add_argument_items,
     add_message_arguments_to_bank,
     add_sources_to_argument_bank,
+    add_sources_to_argument_bank_with_ai_titles,
     build_argument_bank_from_sources,
     build_argument_bank_items,
     enforce_argument_citations,
 )
+import pytest
 
 
 def _debate() -> DebateState:
@@ -96,6 +98,58 @@ def test_build_argument_bank_from_sources_uses_natural_titles() -> None:
     assert "未找到" not in bank["affirmative"][0].claim
 
 
+def test_argument_bank_title_is_refined_from_evidence_not_raw_prefix() -> None:
+    sources = [
+        Source(
+            title="课堂观察资料",
+            excerpt="2024年上海某区课堂观察显示，AI 口语陪练让学生课后英语口语练习频次提升42%。",
+        )
+    ]
+
+    bank = build_argument_bank_from_sources("人工智能是否会提升学习能力", sources)
+
+    assert bank["affirmative"][0].title == "AI口语陪练频次提升"
+    assert not bank["affirmative"][0].title.startswith("来源")
+    assert "2024年上海某区课堂观察显示" not in bank["affirmative"][0].title
+
+
+@pytest.mark.asyncio
+async def test_add_sources_uses_ai_summarized_titles_instead_of_clipped_excerpt(monkeypatch) -> None:
+    debate = _debate()
+    long_excerpt = "2024年上海某区课堂观察显示，AI 口语陪练让学生课后英语口语练习频次提升42%。"
+
+    async def fake_chat_completion(messages, **kwargs):
+        assert kwargs["operation"] == "argument_bank_title_summary"
+        prompt = messages[-1]["content"]
+        assert long_excerpt in prompt
+        return '{"titles":[{"id":"AFF-1","title":"AI陪练提升口语频次"}]}'
+
+    monkeypatch.setattr("app.services.argument_bank.chat_completion", fake_chat_completion)
+
+    added = await add_sources_to_argument_bank_with_ai_titles(
+        debate,
+        [Source(title="课堂观察资料", excerpt=long_excerpt)],
+    )
+
+    assert added["affirmative"] == 1
+    assert debate.argument_bank["affirmative"][0].title == "AI陪练提升口语频次"
+    assert not debate.argument_bank["affirmative"][0].title.startswith("2024年上海某区")
+
+
+def test_argument_bank_title_removes_year_prefix_from_source_excerpt() -> None:
+    sources = [
+        Source(
+            title="学生AI解题依赖调查",
+            excerpt="2021年一项针对高中生的调查显示，频繁使用AI解题后自主解题能力下降。",
+        )
+    ]
+
+    bank = build_argument_bank_from_sources("人工智能是否会提升学习能力", sources)
+
+    assert bank["negative"][0].title == "AI解题后自主解题下降"
+    assert bank["negative"][0].title != "2021年"
+
+
 def test_argument_bank_filters_generic_or_wrong_side_sources() -> None:
     sources = [
         Source(id="kb-debate-scoring", title="辩论礼仪", excerpt="逻辑一致性与证据可验证性是评分核心。"),
@@ -146,7 +200,7 @@ def test_sources_incrementally_enter_argument_bank_after_initial_lock() -> None:
     assert len({item.id for item in debate.argument_bank["negative"]}) == len(debate.argument_bank["negative"])
 
 
-def test_ai_message_sources_and_new_claims_are_saved_as_arguments() -> None:
+def test_ai_message_sources_are_saved_but_speech_claims_are_not_extracted() -> None:
     debate = _debate()
     message = DebateMessage(
         debate_id=debate.id,
@@ -168,10 +222,30 @@ def test_ai_message_sources_and_new_claims_are_saved_as_arguments() -> None:
 
     assert added["negative"] >= 1
     assert any("韩国AI作业禁令" == item.title for item in debate.argument_bank["negative"])
-    assert any("主动学习" in item.claim or "家庭作业" in item.claim for item in debate.argument_bank["negative"])
+    assert any("家庭作业" in item.claim for item in debate.argument_bank["negative"])
+    assert not any(item.source.startswith("AI 发言入库") for item in debate.argument_bank["negative"])
 
 
-def test_ai_message_argument_title_prefers_concrete_case_not_speaker_setup() -> None:
+def test_public_speech_claims_do_not_enter_argument_bank_without_sources() -> None:
+    debate = _debate()
+    message = DebateMessage(
+        debate_id=debate.id,
+        speaker_id="aff_2",
+        speaker_name="澜汐",
+        side="affirmative",
+        phase="rebuttal",
+        segment_label="正方二辩驳论",
+        content="2024年某省重点中学引入AI作业批改系统后，学生错题订正率提升近30%。",
+        sources=[],
+    )
+
+    added = add_message_arguments_to_bank(debate, message)
+
+    assert added == {"affirmative": 0, "negative": 0}
+    assert debate.argument_bank["affirmative"] == []
+
+
+def test_internal_team_discussion_does_not_seed_argument_bank_from_strategy_text() -> None:
     debate = _debate()
     message = DebateMessage(
         debate_id=debate.id,
@@ -186,11 +260,10 @@ def test_ai_message_argument_title_prefers_concrete_case_not_speaker_setup() -> 
         ),
     )
 
-    add_message_arguments_to_bank(debate, message)
+    added = add_message_arguments_to_bank(debate, message)
 
-    titles = [item.title for item in debate.argument_bank["affirmative"]]
-    assert "AI作业批改订正率提升" in titles
-    assert all(not title.startswith("我作为") for title in titles)
+    assert added == {"affirmative": 0, "negative": 0}
+    assert debate.argument_bank["affirmative"] == []
 
 
 def test_ai_message_tactics_and_role_assignments_do_not_enter_argument_bank() -> None:

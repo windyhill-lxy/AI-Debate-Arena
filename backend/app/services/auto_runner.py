@@ -283,16 +283,23 @@ async def _auto_loop(debate_id: str) -> None:
 
             try:
                 if is_procedural_segment(debate):
+                    agent = next((item for item in debate.agents if item.id == debate.active_speaker_id), None)
                     await _broadcast(
                         debate_id,
-                        "pipeline_prep",
+                        "workflow_progress",
                         {
-                            "next_speaker_id": debate.active_speaker_id,
-                            "next_speaker_name": "流程推进",
-                            "partial_length": 0,
-                            "sources_count": 0,
-                            "procedural": True,
+                            "type": "workflow_progress",
+                            "node_id": debate.schedule[debate.schedule_index].id if debate.schedule else "",
+                            "node_label": debate.segment_label,
+                            "node_detail": debate.segment_rules,
                             "segment_label": debate.segment_label,
+                            "phase": debate.phase,
+                            "speaker_id": debate.active_speaker_id,
+                            "speaker_name": agent.name if agent else "系统推进",
+                            "side": agent.side if agent else "judge",
+                            "position": agent.position if agent else 0,
+                            "schedule_index": debate.schedule_index,
+                            "schedule_total": len(debate.schedule or []),
                         },
                     )
                     debate = await _run_procedural_step(debate)
@@ -316,6 +323,9 @@ async def _auto_loop(debate_id: str) -> None:
                 f"AI 回合 · {debate.segment_label}",
                 f"房间 `{debate_id}` 完成一步；发言方 `{debate.active_speaker_id}`。",
             )
+
+            if not debate.auto_running:
+                break
 
             if debate.phase == "finished":
                 debate.auto_running = False

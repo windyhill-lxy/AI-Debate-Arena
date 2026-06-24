@@ -5,9 +5,16 @@ import CopyShareLinkButton from "../components/CopyShareLinkButton.jsx";
 import MarkdownBody from "../components/MarkdownBody.jsx";
 import { buildShareUrl } from "../utils/shareLink.js";
 import { useAudioQueue } from "../hooks/useAudioQueue.js";
-import { buildClientHistoryMarkdown, downloadTextFile, stripMarkdownForSubtitle } from "../utils/debateDisplay.js";
+import {
+  buildClientHistoryMarkdown,
+  displaySpeakerName,
+  downloadTextFile,
+  stripMarkdownForSubtitle,
+} from "../utils/debateDisplay.js";
 import { demoAgents, PHASE_NAMES, portraitById } from "../data/agents";
 import { API_BASE } from "../utils/apiBase.js";
+import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
+import { errorDialogPayload, throwHttpError } from "../utils/httpError.js";
 
 function phaseName(phase) {
   return PHASE_NAMES[phase] || phase;
@@ -32,6 +39,7 @@ export default function Replay({ shareMode = false }) {
   const [error, setError] = useState("");
 
   const { playMessage, enqueue, skipCurrent, setReplayMode, subtitle, queueLength, current } = useAudioQueue();
+  const { reportError } = useErrorDialog();
 
   useEffect(() => {
     setReplayMode(true);
@@ -41,15 +49,18 @@ export default function Replay({ shareMode = false }) {
   useEffect(() => {
     fetch(`${API_BASE}/api/debates/${id}`)
       .then((r) => {
-        if (!r.ok) throw new Error("无法加载回放");
+        if (!r.ok) return throwHttpError(r);
         return r.json();
       })
       .then((data) => {
         setDebate(data);
         setActiveId(data.messages?.[0]?.id || null);
       })
-      .catch((e) => setError(e.message));
-  }, [id]);
+      .catch((e) => {
+        setError(e.message || "无法加载回放");
+        reportError(errorDialogPayload(e, "加载回放失败", "Replay.load", "无法加载回放"));
+      });
+  }, [id, reportError]);
 
   const activeMessage = useMemo(
     () => debate?.messages?.find((m) => m.id === activeId) || debate?.messages?.[0],
@@ -68,10 +79,10 @@ export default function Replay({ shareMode = false }) {
       playMessage(urls, {
         messageId: message.id,
         text: message.content,
-        speakerName: message.speaker_name,
+        speakerName: displaySpeakerName(message, debate),
       });
     },
-    [playMessage],
+    [debate, playMessage],
   );
 
   const playFromActive = useCallback(() => {
@@ -84,7 +95,7 @@ export default function Replay({ shareMode = false }) {
       enqueue(audioUrlsForMessage(msg), {
         messageId: msg.id,
         text: msg.content,
-        speakerName: msg.speaker_name,
+        speakerName: displaySpeakerName(msg, debate),
       }, { replay: true });
     }
   }, [debate, activeId, enqueue]);
@@ -120,6 +131,7 @@ export default function Replay({ shareMode = false }) {
 
   const subtitlePlain = subtitle.text || (activeMessage ? stripMarkdownForSubtitle(activeMessage.content) : "");
   const visibleText = subtitlePlain.slice(0, subtitle.visibleChars || subtitlePlain.length);
+  const activeSpeakerLabel = activeMessage ? displaySpeakerName(activeMessage, debate) : "";
 
   return (
     <main className="replay-page">
@@ -189,7 +201,7 @@ export default function Replay({ shareMode = false }) {
 
       {(subtitle.text || visibleText) && (
         <section className="audio-subtitle-bar replay-subtitle-bar" aria-live="polite">
-          <span className="audio-subtitle-bar__speaker">{subtitle.speakerName || activeMessage?.speaker_name}</span>
+          <span className="audio-subtitle-bar__speaker">{subtitle.speakerName || activeSpeakerLabel}</span>
           <p className="audio-subtitle-bar__text">
             {visibleText}
             <span className="audio-subtitle-bar__caret">|</span>
@@ -228,7 +240,7 @@ export default function Replay({ shareMode = false }) {
                     <span className="replay-timeline__index">{index + 1}</span>
                     <span>
                       <strong>
-                        {message.speaker_name}
+                        {displaySpeakerName(message, debate)}
                         {hasAudio ? " 🔊" : ""}
                       </strong>
                       <em>{message.segment_label || PHASE_NAMES[message.phase] || message.phase}</em>
@@ -246,7 +258,7 @@ export default function Replay({ shareMode = false }) {
               <div className="replay-detail__head">
                 <img src={resolveAvatar(activeMessage.speaker_id)} alt="" />
                 <div>
-                  <h3>{activeMessage.speaker_name}</h3>
+                  <h3>{activeSpeakerLabel}</h3>
                   <p>{activeMessage.segment_label || phaseName(activeMessage.phase)}</p>
                   {activeMessage.score_delta != null && (
                     <p className="score-reason">

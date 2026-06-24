@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Bot, Camera, FileUp, MessageCircle, Scale, Sparkles, Users } from "lucide-react";
 import ConfidenceCameraPreview from "../components/ConfidenceCameraPreview.jsx";
+import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
 import SystemConfigBanner from "../components/debate/SystemConfigBanner.jsx";
 import { useDebateHealth } from "../hooks/useDebateHealth.js";
 import { API_BASE } from "../utils/apiBase.js";
+import { parseHttpErrorBody } from "../utils/httpError.js";
 import "../styles/home.css";
 const MODES = [
   {
@@ -34,7 +36,7 @@ const FALLBACK_SCHEDULES = [
   {
     id: "formal_4v4",
     title: "标准 4v4 完整赛制",
-    description: "立论、盘问、自由辩、总结与裁判终局",
+    description: "立论、驳立论、质辩、自由辩、总结与裁判终局",
     segments_count: 80,
   },
 ];
@@ -59,10 +61,33 @@ async function createDebate(topic, mode, scheduleTemplate, materials, userSeat, 
       format: "formal",
       schedule_template: scheduleTemplate,
       materials: materials.filter((m) => m.content?.trim()),
+      opening_evidence_prep_id: rules.openingEvidencePrepId || null,
     }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
+}
+
+async function prepareOpeningEvidence(topic, scheduleTemplate, materials) {
+  const response = await fetch(`${API_BASE}/api/debates/opening-evidence-prep`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topic,
+      mode: "ai_autonomous",
+      schedule_template: scheduleTemplate,
+      materials: materials.filter((m) => m.content?.trim()),
+    }),
+  });
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
+  return response.json();
+}
+
+async function cancelOpeningEvidencePrep(prepId) {
+  if (!prepId) return;
+  await fetch(`${API_BASE}/api/debates/opening-evidence-prep/${encodeURIComponent(prepId)}`, {
+    method: "DELETE",
+  });
 }
 
 async function toggleConfidenceMonitor(enabled, { showLandmarks = false, cameraIndex = 0, lowPerformance = false } = {}) {
@@ -76,13 +101,13 @@ async function toggleConfidenceMonitor(enabled, { showLandmarks = false, cameraI
       low_performance: lowPerformance,
     }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
 }
 
 async function fetchConfidenceStatus() {
   const response = await fetch(`${API_BASE}/api/confidence-monitor/status`);
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
 }
 
@@ -92,12 +117,13 @@ async function fetchConfidenceReport() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ max_samples: 1000 }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
 }
 
 export default function Home() {
   const navigate = useNavigate();
+  const { reportError } = useErrorDialog();
   const { health, error: healthError, apiBase } = useDebateHealth();
   const initialMode = "ai_autonomous";
   const [topic, setTopic] = useState("人工智能是否会提升青少年的综合学习能力");
@@ -113,6 +139,8 @@ export default function Home() {
   const [schedules, setSchedules] = useState(FALLBACK_SCHEDULES);
   const [materialTitle, setMaterialTitle] = useState("辩题参考资料");
   const [materialText, setMaterialText] = useState("");
+  const [openingPrep, setOpeningPrep] = useState(null);
+  const [preparingOpening, setPreparingOpening] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadHint, setUploadHint] = useState("");
   const [importHint, setImportHint] = useState("");
@@ -168,11 +196,64 @@ export default function Home() {
       const text = await file.text();
       setMaterialText((prev) => (prev ? `${prev}\n\n${text}` : text));
       setMaterialTitle(file.name.replace(/\.[^.]+$/, "") || "上传文件");
+      resetOpeningPrep();
       setUploadHint(`已读取 ${file.name}（${text.length} 字），创建房间时将写入向量库。`);
     } catch {
       setUploadHint("文件读取失败，请使用 UTF-8 编码的 .txt / .md");
     }
     event.target.value = "";
+  }
+
+  function resetOpeningPrep() {
+    setOpeningPrep((current) => {
+      if (current?.prep_id) {
+        cancelOpeningEvidencePrep(current.prep_id).catch(() => {});
+      }
+      return null;
+    });
+  }
+
+  function handleTopicChange(value) {
+    setTopic(value);
+    resetOpeningPrep();
+  }
+
+  function handleMaterialTitleChange(value) {
+    setMaterialTitle(value);
+    resetOpeningPrep();
+  }
+
+  function handleMaterialTextChange(value) {
+    setMaterialText(value);
+    resetOpeningPrep();
+  }
+
+  async function goNextStep() {
+    if (setupStep === 0) {
+      if (!topic.trim()) return;
+      const materials = materialText.trim()
+        ? [{ title: materialTitle, content: materialText }]
+        : [];
+      if (!openingPrep || openingPrep.topic !== topic.trim()) {
+        setPreparingOpening(true);
+        try {
+          const prep = await prepareOpeningEvidence(topic.trim(), scheduleTemplate, materials);
+          setOpeningPrep(prep);
+        } catch (error) {
+          reportError({
+            title: "论据预搜集失败",
+            message: error.message || "请确认后端已启动并填写 API Key",
+            code: error.code || error.status,
+            requestId: error.requestId,
+            details: error.details,
+            source: "Home.prepareOpeningEvidence",
+          });
+        } finally {
+          setPreparingOpening(false);
+        }
+      }
+    }
+    setSetupStep((step) => Math.min(WIZARD_STEPS.length - 1, step + 1));
   }
 
   async function enterRoom() {
@@ -220,7 +301,14 @@ export default function Home() {
         timing: modeForCreate === "ai_autonomous" ? "unlimited" : timingMode,
         ttsEnabled,
       };
-      const debate = await createDebate(topic, modeForCreate, scheduleTemplate, materials, userSeat, rules);
+      const debate = await createDebate(
+        topic,
+        modeForCreate,
+        scheduleTemplate,
+        materials,
+        userSeat,
+        { ...rules, openingEvidencePrepId: openingPrep?.prep_id || null },
+      );
       if (modeForCreate === "online_match") {
         navigate(`/join/${debate.id}`, {
           state: { topic, fromCreate: true, scheduleTemplate, materialChunks: materials.length },
@@ -231,7 +319,14 @@ export default function Home() {
         });
       }
     } catch (error) {
-      alert(`创建房间失败：${error.message || "请确认后端已启动并填写 API Key"}`);
+      reportError({
+        title: "创建房间失败",
+        message: error.message || "请确认后端已启动并填写 API Key",
+        code: error.code || error.status,
+        requestId: error.requestId,
+        details: error.details,
+        source: "Home.createDebate",
+      });
     } finally {
       setLoading(false);
     }
@@ -267,13 +362,21 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: file.name, content }),
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
       const debate = await response.json();
       navigate(`/replay/${debate.id}`, {
         state: { debate, mode: debate.mode, topic: debate.topic },
       });
     } catch (error) {
       setImportHint(`导入失败：${error.message || "请确认是本项目导出的 Markdown 历史记录"}`);
+      reportError({
+        title: "导入历史失败",
+        message: error.message || "请确认是本项目导出的 Markdown 历史记录",
+        code: error.code || error.status,
+        requestId: error.requestId,
+        details: error.details,
+        source: "Home.importHistory",
+      });
     } finally {
       setImporting(false);
       event.target.value = "";
@@ -335,7 +438,7 @@ export default function Home() {
           id="topic"
           rows={3}
           value={topic}
-          onChange={(e) => setTopic(e.target.value)}
+          onChange={(e) => handleTopicChange(e.target.value)}
           placeholder="输入本场辩论辩题…"
         />
       </section>
@@ -351,14 +454,14 @@ export default function Home() {
         <input
           className="home-materials__title"
           value={materialTitle}
-          onChange={(e) => setMaterialTitle(e.target.value)}
+          onChange={(e) => handleMaterialTitleChange(e.target.value)}
           placeholder="资料标题"
         />
         <textarea
           id="materials"
           rows={5}
           value={materialText}
-          onChange={(e) => setMaterialText(e.target.value)}
+          onChange={(e) => handleMaterialTextChange(e.target.value)}
           placeholder="粘贴论文摘要、新闻、数据说明等… 将自动分块写入轻量向量库（无需 Ollama）。"
         />
         {uploadHint && <p className="home-hint">{uploadHint}</p>}
@@ -622,10 +725,10 @@ export default function Home() {
             <button
               type="button"
               className="home-file-btn setup-next-btn"
-              disabled={setupStep === 0 && !topic.trim()}
-              onClick={() => setSetupStep((step) => Math.min(WIZARD_STEPS.length - 1, step + 1))}
+              disabled={(setupStep === 0 && !topic.trim()) || preparingOpening}
+              onClick={goNextStep}
             >
-              下一步：{WIZARD_STEPS[setupStep + 1]}
+              {preparingOpening ? "正在准备论据…" : `下一步：${WIZARD_STEPS[setupStep + 1]}`}
             </button>
           )}
         </div>

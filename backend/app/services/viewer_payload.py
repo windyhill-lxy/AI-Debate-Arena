@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.models import DebateMessage, DebateMode, DebateState, OnlineParticipant
+from app.services.argument_bank import OPENING_ARGUMENT_TARGET_PER_SIDE, opening_argument_bank_ready
 from app.services.debate_mode import debate_user_side
 from app.services.message_visibility import (
     filter_messages_for_viewer,
@@ -57,7 +58,7 @@ def filter_messages_for_viewer_mode(
     viewer_side: str | None,
     in_internal_phase: bool,
 ) -> list[DebateMessage]:
-    mode = normalize_viewer_mode(viewer_mode or debate.visibility.value)
+    mode = normalize_viewer_mode(viewer_mode)
     if mode == "god":
         return list(messages)
     if viewer_side:
@@ -114,11 +115,19 @@ def debate_payload_for_viewer(
         in_internal_phase=in_internal,
     )
     apply_strategy_field_policy(clone.messages, mode, viewer_side=side)
-    from app.services.debate_mode import user_turn_allowed
+    from app.services.debate_mode import user_turn_allowed_readonly
 
     payload = clone.model_dump(mode="json")
     payload["viewer_mode"] = mode
-    payload["user_turn_allowed"] = user_turn_allowed(debate, participant)
+    payload["user_turn_allowed"] = user_turn_allowed_readonly(debate, participant)
+    connected_debaters = [
+        p for p in debate.participants
+        if p.connected and p.side in {"affirmative", "negative"} and p.position in {1, 2, 3, 4}
+    ]
+    payload["online_connected_debaters"] = len(connected_debaters)
+    payload["online_has_guest"] = len(connected_debaters) >= 2
+    payload["opening_argument_target_per_side"] = OPENING_ARGUMENT_TARGET_PER_SIDE
+    payload["opening_argument_bank_ready"] = opening_argument_bank_ready(debate)
     return payload
 
 

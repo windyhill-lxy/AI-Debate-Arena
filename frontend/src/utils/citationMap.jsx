@@ -69,7 +69,8 @@ export function renderTextWithCitations(text, sourceMap, onSelect) {
     const key = bracket?.[1] || book?.[1];
     if (!key) return part;
     const source = resolveCitationKey(key, sourceMap);
-    const label = source?.title || key;
+    const label = key;
+    const display = bracket ? `[${label}]` : `【${label}】`;
     return (
       <button
         key={`cite-${index}-${key}`}
@@ -86,7 +87,7 @@ export function renderTextWithCitations(text, sourceMap, onSelect) {
         }
         title={source ? "查看资料摘要" : "资料未入库"}
       >
-        【{label}】
+        {display}
       </button>
     );
   });

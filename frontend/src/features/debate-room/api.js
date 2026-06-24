@@ -1,4 +1,5 @@
 import { API_BASE } from "./constants.js";
+import { parseHttpErrorBody } from "../../utils/httpError.js";
 
 const ERROR_HINTS = {
   "当前为队内讨论环节，无需用户发言": "队内讨论中，请等待轮到您在队内窗口发言",
@@ -6,6 +7,7 @@ const ERROR_HINTS = {
   "当前环节不需要用户发言": "当前环节不需要您发言，请等待",
   "现在不是你的发言回合": "现在不是您的发言回合，请等待",
   "当前环节不是双方辩手发言": "当前环节不是辩手公开发言环节",
+  "论据库尚未搜集完成，请等待正反方论据各达到 10 条后再进入队内讨论": "论据库正在搜集，正反方各满 10 条后才能进入队内讨论",
 };
 
 export function parseApiError(text) {
@@ -27,12 +29,16 @@ export function parseApiError(text) {
   return trimmed;
 }
 
+export function parseDebateApiError(text, response) {
+  return parseHttpErrorBody(text, response, ERROR_HINTS);
+}
+
 export async function debateRequest(path, options = {}) {
   const { headers: extraHeaders, ...rest } = options;
   const response = await fetch(`${API_BASE}${path}`, {
     ...rest,
     headers: { "Content-Type": "application/json", ...extraHeaders },
   });
-  if (!response.ok) throw new Error(parseApiError(await response.text()));
+  if (!response.ok) throw parseDebateApiError(await response.text(), response);
   return response.json();
 }

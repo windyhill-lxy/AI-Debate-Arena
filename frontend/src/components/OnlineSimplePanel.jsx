@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Copy, Globe, Link2, Loader2, Network, PlusCircle, Users, Wifi } from "lucide-react";
+import { Copy, Globe, Link2, Loader2, PlusCircle, Users, Wifi } from "lucide-react";
+import { useErrorDialog } from "./ErrorDialogProvider.jsx";
 import { usePublicTunnel } from "../hooks/usePublicTunnel.js";
 import { API_BASE, isTunnelHost } from "../utils/apiBase.js";
+import { errorDialogPayload, parseHttpErrorBody } from "../utils/httpError.js";
 import OnlineNetworkDiag from "./OnlineNetworkDiag.jsx";
 import TunnelProviderPanel from "./TunnelProviderPanel.jsx";
 import {
@@ -92,6 +94,46 @@ function TopicMaterialFields({ topic, onTopicChange, materialTitle, setMaterialT
   );
 }
 
+async function copyTextSafely(text) {
+  if (!text) return false;
+  try {
+    if (document.hasFocus() && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall back to a temporary textarea when the browser denies clipboard access.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+  return copied;
+}
+
+function assertPublicTunnelReady(tunnelState) {
+  if (!tunnelState?.running || !tunnelState?.url) {
+    throw new Error(tunnelState?.error || "公网隧道未开启，请重新点击复制公网邀请链接。");
+  }
+  if (!tunnelState?.healthy) {
+    throw new Error(
+      tunnelState?.error ||
+        "公网地址暂未连通，同学打开会显示离线。请稍后重试，或重启公网隧道/改用局域网联机。",
+    );
+  }
+}
+
 export default function OnlineSimplePanel({
   variant = "standalone",
   debateId = "",
@@ -102,6 +144,7 @@ export default function OnlineSimplePanel({
   onCreateEnd,
 }) {
   const navigate = useNavigate();
+  const { reportError } = useErrorDialog();
   const { status, busy, start, stop, refresh, verify } = usePublicTunnel();
   const [joinInput, setJoinInput] = useState("");
   const [topic, setTopic] = useState(
@@ -140,7 +183,7 @@ export default function OnlineSimplePanel({
   async function ensureSession() {
     if (sessionId) return sessionId;
     const response = await fetch(`${API_BASE}/api/debates/online-session`, { method: "POST" });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
     const data = await response.json();
     setSessionId(data.session_id);
     return data.session_id;
@@ -164,22 +207,27 @@ export default function OnlineSimplePanel({
             "公网隧道不可用。请先配置 ngrok Token 并保持程序窗口开启；否则请改用局域网联机。",
         );
       }
+      tunnelState = await verify();
+      assertPublicTunnelReady(tunnelState);
       const link = buildSessionInviteLink(sid, tunnelState.url);
       if (!link) throw new Error("无法生成公网邀请链接");
       if (!link.includes("/join/session/")) {
         throw new Error("邀请链接格式异常，请重试");
       }
-      await navigator.clipboard.writeText(link);
       setLastInviteLink(link);
       setPublicReady(true);
+      const copiedOk = await copyTextSafely(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       const via = tunnelState.provider === "ngrok" ? "ngrok" : "公网隧道";
       setHint(
-        `已复制完整邀请链接（${via}）。请把含 /join/session/ 的整段链接发给同学，不要只发 ngrok 域名。请保持程序窗口开着。`,
+        copiedOk
+          ? `已复制完整邀请链接（${via}）。请把含 /join/session/ 的整段链接发给同学，不要只发 ngrok 域名。请保持程序窗口开着。`
+          : `浏览器没有允许自动复制。完整邀请链接已显示在下方，请手动复制后发给同学。`,
       );
     } catch (error) {
       setHint(error.message || "公网邀请准备失败");
+      reportError(errorDialogPayload(error, "公网邀请准备失败", "OnlineSimplePanel.publicLink"));
     } finally {
       setCopying(false);
     }
@@ -214,7 +262,7 @@ export default function OnlineSimplePanel({
           session_id: network === "public" ? sid : null,
         }),
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
       const debate = await response.json();
       if (debate.host_token) saveHostToken(debate.id, debate.host_token);
       navigate(`/join/${encodeURIComponent(debate.id)}`, {
@@ -222,6 +270,7 @@ export default function OnlineSimplePanel({
       });
     } catch (error) {
       setHint(error.message || "创建失败，请确认程序已启动");
+      reportError(errorDialogPayload(error, "创建联机房间失败", "OnlineSimplePanel.createRoom", "请确认程序已启动"));
     } finally {
       setCreating(false);
       onCreateEnd?.();
@@ -233,9 +282,15 @@ export default function OnlineSimplePanel({
     setHint("");
     try {
       let tunnelUrl = status.url || "";
+      let tunnelState = status;
       if (isLoopbackHost(hostname) && !tunnelUrl) {
-        const data = await start();
-        tunnelUrl = data?.url || "";
+        tunnelState = await start();
+        tunnelUrl = tunnelState?.url || "";
+      }
+      if (tunnelUrl || isLoopbackHost(hostname)) {
+        tunnelState = await verify();
+        assertPublicTunnelReady(tunnelState);
+        tunnelUrl = tunnelState.url || tunnelUrl;
       }
       const base =
         resolveInviteBase(tunnelUrl) ||
@@ -249,11 +304,14 @@ export default function OnlineSimplePanel({
         setHint("暂时无法生成可分享链接，请先开启公网隧道或使用局域网地址");
         return;
       }
-      await navigator.clipboard.writeText(finalLink);
+      setLastInviteLink(finalLink);
+      const copiedOk = await copyTextSafely(finalLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setHint("复制失败，请检查浏览器权限");
+      if (!copiedOk) setHint("浏览器没有允许自动复制，邀请链接已显示，请手动复制。");
+    } catch (error) {
+      setHint(error.message || "复制失败，请检查浏览器权限");
+      reportError(errorDialogPayload(error, "复制邀请链接失败", "OnlineSimplePanel.copyInvite", "请检查浏览器权限"));
     } finally {
       setCopying(false);
     }
@@ -291,6 +349,11 @@ export default function OnlineSimplePanel({
             {copied ? "已复制邀请链接" : copying ? "正在准备链接…" : "复制邀请链接，发给同学"}
           </button>
           <p className="online-simple__micro-hint">同学打开链接后，将看到辩题资料、选席位与摄像头调试流程。</p>
+          {lastInviteLink && (
+            <p className="online-simple__micro-hint">
+              邀请链接：<code>{lastInviteLink}</code>
+            </p>
+          )}
         </div>
       )}
 
@@ -301,13 +364,30 @@ export default function OnlineSimplePanel({
               <Wifi size={18} />
               <div>
                 <h3>局域网联机</h3>
-                <p>同一 Wi‑Fi 或教室网络内使用，延迟低、无需公网。</p>
+                <p>同一 Wi-Fi 或教室网络内使用，延迟低、无需公网。</p>
               </div>
             </div>
-            <div className="online-steps">
-              <span>1 同一 Wi-Fi</span>
-              <span>2 填辩题</span>
-              <span>3 创建并发链接</span>
+            <div className="online-lan-wizard">
+              <article>
+                <strong>1 连接同一网络</strong>
+                <span>房主和同学连接同一个 Wi-Fi、校园网或教室路由器。</span>
+              </article>
+              <article>
+                <strong>2 房主启动局域网</strong>
+                <span>房主运行项目根目录的 start-lan.bat，等待窗口显示局域网访问地址。</span>
+              </article>
+              <article>
+                <strong>3 打开大厅</strong>
+                <span>房主用浏览器打开局域网地址后进入联机大厅，在这里填写辩题和资料。</span>
+              </article>
+              <article>
+                <strong>4 创建房间</strong>
+                <span>点击创建局域网房间，进入席位选择，把浏览器地址栏里的房间链接发给同学。</span>
+              </article>
+              <article>
+                <strong>5 同学加入</strong>
+                <span>同学打开链接，选择席位并完成设备检查。打不开时先确认双方仍在同一网络。</span>
+              </article>
             </div>
             {onLan && (
               <p className="online-simple__micro-hint">
@@ -347,54 +427,6 @@ export default function OnlineSimplePanel({
             >
               {creating ? <Loader2 size={18} className="spin" /> : <PlusCircle size={18} />}
               {creating ? "创建中…" : variant === "lobby" ? "创建局域网房间" : "进入联机大厅"}
-            </button>
-          </div>
-
-          <div className="online-simple__section online-simple__section--radmin">
-            <div className="online-simple__section-head">
-              <Network size={18} />
-              <div>
-                <h3>Radmin LAN</h3>
-                <p>不在同一 Wi-Fi 时，用虚拟局域网连接。</p>
-              </div>
-            </div>
-            <ol className="online-radmin-guide">
-              <li>房主和同学都安装 Radmin VPN，并打开软件。</li>
-              <li>房主点击“网络”，选择“创建网络”，填写网络名和密码。</li>
-              <li>同学点击“网络”，选择“加入网络”，输入房主给的网络名和密码。</li>
-              <li>所有人进入同一个房间后，房主在 Radmin 主界面复制自己的 26.x.x.x 地址。</li>
-              <li>房主运行本项目的“局域网启动”或 start-lan.bat，并用浏览器打开 <code>http://房主26IP:5173/lobby</code>。</li>
-              <li>房主在这里创建 Radmin 房间，再把生成的邀请链接发给同学。</li>
-              <li>同学打不开时，先确认 Radmin 里双方在线，再检查防火墙是否允许 Node 和 Python 通过专用网络。</li>
-            </ol>
-            {variant === "lobby" && (
-              <>
-                <TopicMaterialFields
-                  topic={effectiveTopic}
-                  onTopicChange={handleTopicChange}
-                  materialTitle={materialTitle}
-                  setMaterialTitle={setMaterialTitle}
-                  materialText={materialText}
-                  setMaterialText={setMaterialText}
-                />
-                <RoomRules
-                  visibilityMode={visibilityMode}
-                  setVisibilityMode={setVisibilityMode}
-                  timingMode={timingMode}
-                  setTimingMode={setTimingMode}
-                  ttsEnabled={ttsEnabled}
-                  setTtsEnabled={setTtsEnabled}
-                />
-              </>
-            )}
-            <button
-              type="button"
-              className="online-simple__primary"
-              disabled={creating || !effectiveTopic.trim()}
-              onClick={() => (variant === "lobby" ? createRoom("radmin") : navigate("/lobby"))}
-            >
-              {creating ? <Loader2 size={18} className="spin" /> : <PlusCircle size={18} />}
-              {creating ? "创建中…" : variant === "lobby" ? "创建 Radmin 房间" : "进入联机大厅"}
             </button>
           </div>
 

@@ -20,10 +20,10 @@ function VideoTile({ stream, label, muted = false, mirror = false }) {
 }
 
 /** 加入页本地摄像头调试（仅预览，不推流） */
-export function OnlineCameraDebug({ enabled = true, onStream }) {
+export function OnlineCameraDebug({ enabled = true, cameraEnabled = false, onCameraEnabledChange, onStream }) {
   const videoRef = useRef(null);
-  const [on, setOn] = useState(true);
-  const { stream, error } = useLocalCamera({ enabled: enabled && on });
+  const on = Boolean(cameraEnabled);
+  const { stream, error } = useLocalCamera({ enabled: enabled && on, popupOnError: true });
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -35,7 +35,7 @@ export function OnlineCameraDebug({ enabled = true, onStream }) {
   return (
     <div className="online-camera online-camera--debug">
       <div className="online-camera__toolbar">
-        <button type="button" className="online-simple__secondary" onClick={() => setOn((v) => !v)}>
+        <button type="button" className="online-simple__secondary" onClick={() => onCameraEnabledChange?.(!on)}>
           {on ? <CameraOff size={16} /> : <Camera size={16} />}
           {on ? "关闭我的摄像头" : "开启我的摄像头"}
         </button>
@@ -49,7 +49,9 @@ export function OnlineCameraDebug({ enabled = true, onStream }) {
           </div>
         </div>
       )}
-      <p className="online-simple__micro-hint">进入辩论室后，可与对方辩手互相看到摄像头画面（可随时关闭自己的）。</p>
+      <p className="online-simple__micro-hint">
+        摄像头是可选项；不开启也可以继续辩论。进入辩论室后仍可随时开启或关闭。
+      </p>
     </div>
   );
 }
@@ -70,7 +72,7 @@ export default function OnlineCameraPanel({ camera }) {
           {localOn ? "关闭我的摄像头" : "开启我的摄像头"}
         </button>
       </div>
-      {error && <p className="online-simple__hint online-simple__hint--error">{error}</p>}
+      {error && <p className="online-simple__micro-hint">{error}</p>}
       <div className="online-camera__grid">
         {localOn && <VideoTile stream={localStream} label="我的画面" muted mirror />}
         {remoteStreams.map((item) => (

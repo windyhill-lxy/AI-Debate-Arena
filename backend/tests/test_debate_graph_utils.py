@@ -1,11 +1,21 @@
 from app.services.llm import strip_model_reasoning
-from app.models import DebateMode, DebateState, DebateTiming, DebateVisibility, default_agents, workflow_template
+from app.models import (
+    ArgumentBankItem,
+    DebateMode,
+    DebateState,
+    DebateTiming,
+    DebateVisibility,
+    default_agents,
+    workflow_template,
+)
 from app.workflow.debate_graph import (
     _apply_phase_speech_limits,
     _cross_examination_mode,
     _framework_looks_incomplete,
+    _has_substantive_completion,
     _looks_incomplete,
     _max_sentences_for_phase,
+    debate_graph,
 )
 
 
@@ -29,6 +39,10 @@ def test_cross_examination_mode_distinguishes_question_and_response() -> None:
     assert _cross_examination_mode("正方三辩盘问") == "question"
     assert _cross_examination_mode("反方回应盘问") == "respond"
     assert _cross_examination_mode("正方回应质询") == "respond"
+    assert _cross_examination_mode("攻辩1 · 正方三辩提问") == "question"
+    assert _cross_examination_mode("攻辩1 · 反方三辩回答") == "respond"
+    assert _cross_examination_mode("质辩 · 正方三辩问反方一辩") == "question"
+    assert _cross_examination_mode("质辩 · 反方一辩回答") == "respond"
 
 
 def test_low_information_message_detection() -> None:
@@ -51,6 +65,14 @@ def test_looks_incomplete_flags_unfinished_framework_even_with_period() -> None:
     assert _looks_incomplete(text) is True
 
 
+def test_substantive_completion_rejects_too_short_cross_examination() -> None:
+    debate = _debate("cross_examination")
+    debate.segment_label = "质辩 · 反方三辩问正方一辩"
+
+    assert _has_substantive_completion("请问对方如何证明？", debate) is False
+    assert _has_substantive_completion("## 质辩提问\n请问正方一辩，你方把AI完成任务等同于取代人类劳动，但如何证明这种替代不是只发生在重复性岗位，而能覆盖创造、伦理和责任判断？", debate) is True
+
+
 def test_apply_phase_speech_limits_keeps_normal_opening() -> None:
     debate = _debate("opening_statement")
     text = "论证框架分三层递进：第一，A。第二，B。第三，C。因此我方成立。"
@@ -68,6 +90,26 @@ def test_opening_statement_sentence_budget_scales_with_time() -> None:
     assert _max_sentences_for_phase("opening_statement", 180) >= 18
     assert _max_sentences_for_phase("opening_statement", 180) > 12
     assert _max_sentences_for_phase("free_debate", 30) == 1
+
+
+def test_opening_statement_prompt_requires_markdown_800_to_1000_and_all_bank_items() -> None:
+    debate = _debate("opening_statement")
+    debate.active_speaker_id = "aff_1"
+    debate.segment_label = "正方一辩立论"
+    debate.argument_bank_locked = True
+    debate.argument_bank["affirmative"] = [
+        ArgumentBankItem(id=f"AFF-{index}", side="affirmative", title=f"事实{index}", claim=f"202{index}年机构报告显示事实{index}。")
+        for index in range(1, 5)
+    ]
+
+    messages, _sources = debate_graph._speech_messages(debate, {"sources": [], "strategy": "使用全部论据"}, debate.agents[0])
+    prompt = "\n".join(message["content"] for message in messages)
+
+    assert "Markdown" in prompt
+    assert "800" in prompt
+    assert "1000" in prompt
+    for item_id in ("AFF-1", "AFF-2", "AFF-3", "AFF-4"):
+        assert item_id in prompt
 
 
 def test_strip_model_reasoning_removes_think_blocks() -> None:

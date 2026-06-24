@@ -55,29 +55,40 @@ export function isPublicStageMessage(message) {
   return false;
 }
 
-export function debaterPositionLabel(speakerId, agents = []) {
-  const agent = agents.find((a) => a.id === speakerId);
-  if (!agent) return "";
-  const side = agent.side === "affirmative" ? "正方" : agent.side === "negative" ? "反方" : "";
-  const pos = ["一辩", "二辩", "三辩", "四辩"][agent.position - 1] || "";
-  return side && pos ? `${side}${pos}` : "";
+const POSITION_LABELS = ["一辩", "二辩", "三辩", "四辩"];
+
+function positionLabel(side, position) {
+  if (side === "judge") return "裁判";
+  if (side === "assistant") return "系统";
+  const sideText = side === "affirmative" ? "正方" : side === "negative" ? "反方" : "";
+  const posText = POSITION_LABELS[position - 1] || "";
+  return sideText && posText ? `${sideText}${posText}` : "";
 }
 
-/** 队内讨论/公开发言：用户席位显示 user_name，AI 显示角色名 + 席位标签 */
+function labelFromSpeakerId(speakerId) {
+  const match = String(speakerId || "").match(/^(aff|neg)_(\d)$/);
+  if (!match) return "";
+  return positionLabel(match[1] === "aff" ? "affirmative" : "negative", Number(match[2]));
+}
+
+export function agentSeatLabel(agent) {
+  if (!agent) return "";
+  return positionLabel(agent.side, Number(agent.position || 0)) || (agent.side === "judge" ? "裁判" : "");
+}
+
+export function debaterPositionLabel(speakerId, agents = []) {
+  const agent = agents.find((a) => a.id === speakerId);
+  if (agent) return agentSeatLabel(agent);
+  return labelFromSpeakerId(speakerId);
+}
+
+/** 队内讨论/公开发言统一显示赛位称谓，避免人格名和席位混淆。 */
 export function displaySpeakerName(message, debate) {
-  const name = message?.speaker_name || "";
   const seat = debaterPositionLabel(message?.speaker_id, debate?.agents || []);
-  const userSeat = debate?.user_side && debate?.user_position
-    ? `${debate.user_side === "affirmative" ? "aff" : "neg"}_${debate.user_position}`
-    : null;
-  const isUserSeat =
-    message?.speech_flag != null ||
-    (userSeat && message?.speaker_id === userSeat) ||
-    name === (debate?.user_name || "用户辩手");
-  if (isUserSeat && debate?.user_name) {
-    return seat ? `${debate.user_name}（${seat}）` : debate.user_name;
-  }
-  return seat ? `${name}（${seat}）` : name;
+  if (seat) return seat;
+  if (message?.side === "judge" || /裁判/.test(message?.speaker_name || "")) return "裁判";
+  if (message?.side === "assistant") return "系统";
+  return message?.speaker_name || "系统";
 }
 
 export function stripMarkdownForSubtitle(text) {

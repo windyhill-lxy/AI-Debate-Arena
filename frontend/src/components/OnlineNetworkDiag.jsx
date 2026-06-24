@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Loader2, Save, Shield } from "lucide-react";
+import { useErrorDialog } from "./ErrorDialogProvider.jsx";
 import { API_BASE, toWebSocketBase } from "../utils/apiBase.js";
+import { errorDialogPayload, parseHttpErrorBody } from "../utils/httpError.js";
 
 const PROXY_STORAGE_KEY = "debate-tunnel-proxy-draft";
 
 export default function OnlineNetworkDiag() {
+  const { reportError } = useErrorDialog();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -43,7 +46,7 @@ export default function OnlineNetworkDiag() {
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw parseHttpErrorBody(await res.text(), res);
       setReport(await res.json());
     } catch (error) {
       const msg =
@@ -51,6 +54,10 @@ export default function OnlineNetworkDiag() {
           ? "诊断超时（10 秒）。可先配置代理后再试，或改用局域网联机。"
           : error.message || "诊断失败，请确认程序已启动";
       setHint(msg);
+      reportError({
+        ...errorDialogPayload(error, "联机网络诊断失败", "OnlineNetworkDiag.run", msg),
+        message: msg,
+      });
     } finally {
       setBusy(false);
     }
@@ -66,7 +73,7 @@ export default function OnlineNetworkDiag() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ proxy: value }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw parseHttpErrorBody(await res.text(), res);
       const data = await res.json();
       const saved = data.proxy || "";
       setProxy(saved);
@@ -76,6 +83,7 @@ export default function OnlineNetworkDiag() {
       await runDiagnose();
     } catch (error) {
       setHint(error.message || "保存失败");
+      reportError(errorDialogPayload(error, "保存代理失败", "OnlineNetworkDiag.saveProxy"));
     } finally {
       setSaving(false);
     }

@@ -9,6 +9,8 @@ import {
   validateSeatStep,
 } from "../components/JoinWizardSteps.jsx";
 import { debateRequest } from "../features/debate-room/api.js";
+import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
+import { errorDialogPayload } from "../utils/httpError.js";
 import { hostTokenHeaders } from "../utils/hostToken.js";
 import { firstFreePosition, isSeatTaken } from "../utils/joinSeatUtils.js";
 import { participantStorageKey, saveStoredParticipant } from "../utils/participantStorage.js";
@@ -23,6 +25,8 @@ export default function HostJoinFlow({ debateId, initialTopic }) {
   const [position, setPosition] = useState(1);
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState("");
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const { reportError } = useErrorDialog();
 
   const loadDebate = useCallback(async (id) => {
     const data = await debateRequest(`/api/debates/${id}`);
@@ -31,16 +35,26 @@ export default function HostJoinFlow({ debateId, initialTopic }) {
   }, []);
 
   useEffect(() => {
-    if (debateId) loadDebate(debateId).catch(() => setHint("无法加载房间信息"));
-  }, [debateId, loadDebate]);
+    if (debateId) {
+      loadDebate(debateId).catch((error) => {
+        setHint("无法加载房间信息");
+        reportError(errorDialogPayload(error, "加载房间失败", "HostJoinFlow.load", "无法加载房间信息"));
+      });
+    }
+  }, [debateId, loadDebate, reportError]);
 
   useEffect(() => {
     if (!debateId) return undefined;
     const timer = setInterval(() => {
-      loadDebate(debateId).catch(() => {});
+      loadDebate(debateId).catch((error) => {
+        reportError(errorDialogPayload(error, "同步房间失败", "HostJoinFlow.poll"), {
+          dedupeKey: `host-join-poll:${debateId}`,
+          throttleMs: 30000,
+        });
+      });
     }, 3000);
     return () => clearInterval(timer);
-  }, [debateId, loadDebate]);
+  }, [debateId, loadDebate, reportError]);
 
   const occupiedSeats = useMemo(() => {
     const seats = new Set();
@@ -93,19 +107,22 @@ export default function HostJoinFlow({ debateId, initialTopic }) {
         }),
       });
       saveStoredParticipant(debateId, data.participant);
-      await debateRequest(`/api/debates/${debateId}/online-ready`, {
+      const readyData = await debateRequest(`/api/debates/${debateId}/online-ready`, {
         method: "POST",
         headers: hostTokenHeaders(debateId),
       });
+      const nextDebate = readyData.debate || data.debate;
       navigate(`/room/${debateId}`, {
         state: {
-          debate: data.debate,
-          mode: data.debate.mode,
+          debate: nextDebate,
+          mode: nextDebate.mode,
           participant: data.participant,
+          cameraEnabled,
         },
       });
     } catch (error) {
       setHint(`进入失败：${error.message}`);
+      reportError(errorDialogPayload(error, "进入房间失败", "HostJoinFlow.confirmEnter"));
     } finally {
       setLoading(false);
     }
@@ -152,6 +169,8 @@ export default function HostJoinFlow({ debateId, initialTopic }) {
           position={position}
           setPosition={setPosition}
           occupiedSeats={occupiedSeats}
+          cameraEnabled={cameraEnabled}
+          setCameraEnabled={setCameraEnabled}
           topicReadOnlyHint="辩题与资料已设定，创建后不可在此修改。"
         />
         <JoinWizardActions

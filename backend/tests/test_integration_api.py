@@ -6,6 +6,63 @@ import pytest
 from httpx import AsyncClient
 
 
+async def _force_user_turn(debate_id: str, speaker_id: str = "aff_3") -> dict:
+    from app.db.mongo import get_debate, save_debate
+
+    doc = await get_debate(debate_id)
+    assert doc is not None
+    doc["phase"] = "opening_statement"
+    doc["schedule_index"] = 10
+    doc["segment_label"] = "正方三辩发言"
+    doc["segment_rules"] = "用户测试发言"
+    doc["active_speaker_id"] = speaker_id
+    doc["awaiting_user"] = True
+    doc["auto_running"] = False
+    await save_debate(doc)
+    return doc
+
+
+async def _force_aff_team_discussion_turn(debate_id: str, *, fill_argument_bank: bool) -> dict:
+    from app.db.mongo import get_debate, save_debate
+    from app.models import ArgumentBankItem, DebateState
+    from app.services.debate_schedule import apply_segment, get_segment
+
+    doc = await get_debate(debate_id)
+    assert doc is not None
+    debate = DebateState.model_validate(doc)
+    for index in range(120):
+        segment = get_segment(debate, index)
+        if segment and segment.id == "aff_opening_discussion":
+            apply_segment(debate, index)
+            break
+    else:
+        raise AssertionError("missing aff_opening_discussion segment")
+    debate.awaiting_user = True
+    debate.auto_running = False
+    if fill_argument_bank:
+        debate.argument_bank_locked = True
+        debate.argument_bank["affirmative"] = [
+            ArgumentBankItem(
+                id=f"AFF-{index}",
+                side="affirmative",
+                title=f"正方事实{index}",
+                claim=f"202{index % 10}年机构报告显示正方事实{index}。",
+            )
+            for index in range(1, 11)
+        ]
+        debate.argument_bank["negative"] = [
+            ArgumentBankItem(
+                id=f"NEG-{index}",
+                side="negative",
+                title=f"反方事实{index}",
+                claim=f"202{index % 10}年机构报告显示反方事实{index}。",
+            )
+            for index in range(1, 11)
+        ]
+    await save_debate(debate.model_dump(mode="json"))
+    return debate.model_dump(mode="json")
+
+
 @pytest.mark.asyncio
 async def test_health(client: AsyncClient) -> None:
     r = await client.get("/health")
@@ -35,6 +92,18 @@ async def test_create_and_get_debate(client: AsyncClient) -> None:
     get_r = await client.get(f"/api/debates/{debate['id']}")
     assert get_r.status_code == 200
     assert get_r.json()["id"] == debate["id"]
+
+
+@pytest.mark.asyncio
+async def test_http_error_has_popup_ready_envelope(client: AsyncClient) -> None:
+    response = await client.get("/api/debates/not-found-id")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["error"]["message"] == "Debate not found"
+    assert body["error"]["code"] == "http_error"
+    assert body["error"]["status"] == 404
+    assert body["error"]["request_id"]
 
 
 @pytest.mark.asyncio
@@ -156,13 +225,7 @@ async def test_user_message_uses_configured_debater_seat(client: AsyncClient) ->
     )
     debate_id = create.json()["id"]
 
-    for _ in range(120):
-        state = (await client.get(f"/api/debates/{debate_id}")).json()
-        if state["active_speaker_id"] == "aff_3":
-            break
-        await client.post(f"/api/debates/{debate_id}/step")
-    else:
-        raise AssertionError("formal_4v4 did not reach affirmative third debater")
+    await _force_user_turn(debate_id, "aff_3")
 
     submit = await client.post(
         f"/api/debates/{debate_id}/message",
@@ -178,6 +241,67 @@ async def test_user_message_uses_configured_debater_seat(client: AsyncClient) ->
     message = submit.json()["messages"][-1]
     assert message["speaker_id"] == "aff_3"
     assert message["speaker_name"] == "用户三辩"
+
+
+@pytest.mark.asyncio
+async def test_assist_routes_pass_configured_user_position(client: AsyncClient) -> None:
+    create = await client.post(
+        "/api/debates",
+        json={
+            "topic": "辅助席位透传测试",
+            "mode": "user_affirmative",
+            "user_side": "affirmative",
+            "user_position": 2,
+            "user_name": "用户二辩",
+            "schedule_template": "formal_4v4",
+        },
+    )
+    debate_id = create.json()["id"]
+
+    with patch(
+        "app.api.debates.generate_assist",
+        new_callable=AsyncMock,
+        return_value={"side": "affirmative", "position": 2, "suggestion": "ok", "sources": []},
+    ) as mocked:
+        response = await client.post(
+            f"/api/debates/{debate_id}/assist",
+            json={"side": "affirmative", "position": 2, "draft": "请按二辩给建议"},
+        )
+
+    assert response.status_code == 200
+    mocked.assert_awaited_once()
+    assert mocked.await_args.args[1:] == ("affirmative", "请按二辩给建议", 2)
+
+
+@pytest.mark.asyncio
+async def test_draft_stream_route_passes_user_position(client: AsyncClient) -> None:
+    create = await client.post(
+        "/api/debates",
+        json={
+            "topic": "流式代拟席位透传测试",
+            "mode": "user_affirmative",
+            "user_side": "affirmative",
+            "user_position": 2,
+            "user_name": "用户二辩",
+            "schedule_template": "formal_4v4",
+        },
+    )
+    debate_id = create.json()["id"]
+    calls = []
+
+    async def fake_stream(debate, side: str, draft: str, position: int):
+        calls.append((debate.id, side, draft, position))
+        yield {"type": "done", "data": {"side": side, "position": position, "draft": "二辩草稿 [AFF-1]"}}
+
+    with patch("app.api.debates.generate_draft_stream_events", new=fake_stream):
+        response = await client.post(
+            f"/api/debates/{debate_id}/assist/draft/stream",
+            json={"side": "affirmative", "position": 2, "draft": "请按二辩代拟"},
+        )
+
+    assert response.status_code == 200
+    assert calls == [(debate_id, "affirmative", "请按二辩代拟", 2)]
+    assert '"position": 2' in response.text
 
 
 @pytest.mark.asyncio
@@ -197,13 +321,7 @@ async def test_public_low_information_user_message_triggers_judge_warning(client
     )
     debate_id = create.json()["id"]
 
-    for _ in range(120):
-        state = (await client.get(f"/api/debates/{debate_id}")).json()
-        if state["active_speaker_id"] == "aff_3":
-            break
-        await client.post(f"/api/debates/{debate_id}/step")
-    else:
-        raise AssertionError("formal_4v4 did not reach affirmative third debater")
+    await _force_user_turn(debate_id, "aff_3")
 
     before = (await client.get(f"/api/debates/{debate_id}")).json()
     reject = UserSpeechReview(
@@ -287,25 +405,7 @@ async def test_user_can_post_once_during_team_discussion_segment(client: AsyncCl
         json={"topic": "队内讨论禁言测试", "mode": "user_affirmative", "schedule_template": "formal_4v4"},
     )
     debate_id = create.json()["id"]
-    await client.post(f"/api/debates/{debate_id}/step")
-    good = await client.post(
-        f"/api/debates/{debate_id}/message",
-        json={
-            "speaker_id": "aff_1",
-            "speaker_name": "用户辩手",
-            "side": "affirmative",
-            "content": "二辩守定义，三辩打风险，四辩收标准，我定框架三条。",
-        },
-    )
-    assert good.status_code == 200
-
-    for _ in range(30):
-        state = (await client.get(f"/api/debates/{debate_id}")).json()
-        if "队内讨论" in (state.get("segment_label") or ""):
-            break
-        await client.post(f"/api/debates/{debate_id}/step")
-    else:
-        raise AssertionError("schedule did not reach team discussion segment")
+    state = await _force_aff_team_discussion_turn(debate_id, fill_argument_bank=True)
 
     first = await client.post(
         f"/api/debates/{debate_id}/message",
@@ -317,6 +417,10 @@ async def test_user_can_post_once_during_team_discussion_segment(client: AsyncCl
         },
     )
     assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["phase"] == state["phase"]
+    assert first_body["schedule_index"] == state["schedule_index"]
+    assert first_body["awaiting_user"] is False
 
     blocked = await client.post(
         f"/api/debates/{debate_id}/message",
@@ -331,22 +435,62 @@ async def test_user_can_post_once_during_team_discussion_segment(client: AsyncCl
 
 
 @pytest.mark.asyncio
+async def test_team_discussion_rejects_user_before_opening_argument_bank_ready(client: AsyncClient) -> None:
+    create = await client.post(
+        "/api/debates",
+        json={"topic": "队内讨论论据门禁测试", "mode": "user_affirmative", "schedule_template": "formal_4v4"},
+    )
+    debate_id = create.json()["id"]
+    await _force_aff_team_discussion_turn(debate_id, fill_argument_bank=False)
+
+    blocked = await client.post(
+        f"/api/debates/{debate_id}/message",
+        json={
+            "speaker_id": "aff_1",
+            "speaker_name": "用户辩手",
+            "side": "affirmative",
+            "content": "队内讨论：我现在先说分工。",
+        },
+    )
+
+    assert blocked.status_code == 409
+    assert "论据库" in blocked.text
+    state = (await client.get(f"/api/debates/{debate_id}")).json()
+    assert state["awaiting_user"] is False
+    assert state["auto_running"] is True
+    assert state["opening_argument_bank_ready"] is False
+    assert state["user_turn_allowed"] is False
+
+
+@pytest.mark.asyncio
 async def test_get_debate_filters_opponent_internal_discussion(client: AsyncClient) -> None:
+    from app.services.user_speech_judge import UserSpeechReview
+
     create = await client.post(
         "/api/debates",
         json={"topic": "接口隔离测试", "mode": "user_affirmative", "schedule_template": "formal_4v4"},
     )
     debate_id = create.json()["id"]
     await client.post(f"/api/debates/{debate_id}/step")
-    bad = await client.post(
-        f"/api/debates/{debate_id}/message",
-        json={
-            "speaker_id": "aff_1",
-            "speaker_name": "用户辩手",
-            "side": "affirmative",
-            "content": "字母字母字母字母字母字母",
-        },
+    reject = UserSpeechReview(
+        acceptable=False,
+        reason="无效队内讨论",
+        teammate_comment="队友提醒：请围绕任务分工重新输出，不要灌水。",
     )
+    with patch(
+        "app.api.debates.review_user_speech",
+        new_callable=AsyncMock,
+        return_value=reject,
+    ):
+        bad = await client.post(
+            f"/api/debates/{debate_id}/message",
+            json={
+                "speaker_id": "aff_1",
+                "speaker_name": "用户辩手",
+                "side": "affirmative",
+                "content": "字母字母字母字母字母字母",
+            },
+        )
     assert bad.status_code == 200
 
     negative_view = await client.get(f"/api/debates/{debate_id}?viewer_side=negative")

@@ -38,6 +38,51 @@ def _citation_risk(text: str, sources: list[Source]) -> str:
     return "low"
 
 
+def _opening_dimension_scores(
+    *,
+    has_definition: bool,
+    has_three: bool,
+    has_closing: bool,
+    sentence_count: int,
+    sources: list[Source],
+    risk: str,
+    text: str,
+) -> list[dict]:
+    argument_markers = sum(1 for marker in ("第一", "第二", "第三") if marker in text)
+    definition_score = 18 if has_definition else 7
+    structure_score = 24 if has_three else 10 + argument_markers * 4
+    evidence_score = 8 + min(len(sources), 3) * 4
+    if re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%|\d+\s*(万|亿|人|项|次)", text):
+        evidence_score += 3
+    evidence_score = min(20, evidence_score)
+    reliability_score = {"low": 15, "medium": 9, "high": 4}.get(risk, 8)
+    expression_score = 10
+    if has_closing:
+        expression_score += 6
+    if 10 <= sentence_count <= 36:
+        expression_score += 3
+    if len(text) >= 700:
+        expression_score += 1
+    expression_score = min(20, expression_score)
+    return [
+        {"key": "definition", "label": "定义与标准", "score": definition_score, "max_score": 20},
+        {"key": "structure", "label": "论证结构", "score": min(25, structure_score), "max_score": 25},
+        {"key": "evidence", "label": "论据支撑", "score": evidence_score, "max_score": 20},
+        {"key": "reliability", "label": "事实可靠", "score": reliability_score, "max_score": 15},
+        {"key": "expression", "label": "表达收束", "score": expression_score, "max_score": 20},
+    ]
+
+
+def _opening_evaluation(score: int, risk: str, has_three: bool) -> str:
+    if score >= 90 and risk != "high":
+        return "已经接近正式比赛可用稿，下一步主要压缩重复表达并增强临场气势。"
+    if score >= 78:
+        return "整体框架已经成型，但论据密度和反方预判还需要继续补强。"
+    if has_three:
+        return "三段论证雏形已经出现，但定义、证据或结尾比较还不足以支撑高分。"
+    return "目前更像观点草稿，还需要先搭起定义、判断标准和三条清晰论证链。"
+
+
 def analyze_opening_draft(topic: str, side: Literal["affirmative", "negative"], draft: str) -> dict:
     text = (draft or "").strip()
     if not text:
@@ -50,19 +95,16 @@ def analyze_opening_draft(topic: str, side: Literal["affirmative", "negative"], 
     sentence_count = _sentence_count(text)
     risk = _citation_risk(text, sources)
 
-    score = 38
-    score += 12 if has_definition else 0
-    score += 18 if has_three else 0
-    score += 9 if has_closing else 0
-    score += 8 if 10 <= sentence_count <= 36 else 3
-    score += min(len(sources), 3) * 4
-    if len(text) < 700:
-        score -= 8
-    if risk == "high":
-        score -= 12
-    elif risk == "medium":
-        score -= 6
-    score = max(0, min(94, score))
+    dimensions = _opening_dimension_scores(
+        has_definition=has_definition,
+        has_three=has_three,
+        has_closing=has_closing,
+        sentence_count=sentence_count,
+        sources=sources,
+        risk=risk,
+        text=text,
+    )
+    score = max(0, min(98, sum(item["score"] for item in dimensions)))
 
     advice: list[str] = []
     if not has_definition:
@@ -88,6 +130,13 @@ def analyze_opening_draft(topic: str, side: Literal["affirmative", "negative"], 
         "topic": topic,
         "side": side,
         "score": score,
+        "score_summary": {
+            "overall": score,
+            "label": "综合分",
+            "evaluation": _opening_evaluation(score, risk, has_three),
+            "improvement_suggestions": advice,
+        },
+        "dimensions": dimensions,
         "structure": {
             "has_definition": has_definition,
             "has_three_arguments": has_three,
@@ -133,18 +182,18 @@ def _fallback_opening(topic: str, side: Literal["affirmative", "negative"], advi
     key = _topic_keyword(topic)
     if side == "affirmative":
         points = [
-            f"第一，{key}能够降低学习和训练中的反馈成本，让学生更快知道问题在哪里，也更容易把一次练习转化为下一次改进。",
-            f"第二，{key}能够扩展材料来源和表达角度，使学生在比较不同观点时形成更完整的判断，而不是只停留在单一经验里。",
-            f"第三，{key}能够帮助学生复盘思路，发现论证跳步、概念混用和证据不足，从而提升综合学习能力。",
+            f"第一，{key}能够降低学习和训练中的反馈成本。传统学习中，学生常常要等到作业批改、课堂讲评或考试之后才知道自己错在哪里，反馈延迟会让错误方法被反复使用。AI 辅助学习的价值正在于把反馈前移，让学生在练习当场看到概念漏洞、步骤缺口和表达问题，再把一次错误转化为下一轮修改。只要教师仍然保留评价权，AI 提供的不是替代思考的答案，而是更快出现的镜子。",
+            f"第二，{key}能够扩展材料来源和表达角度。综合学习能力不是背出单一结论，而是在不同材料之间比较、筛选、组织和表达。AI 可以把教材、案例、类比和反例同时摆到学生面前，帮助学生看到同一问题的不同解释路径。学生如果在教师要求下说明为什么选用某条材料、为什么放弃另一条材料，实际训练的正是信息辨析和观点建构能力。",
+            f"第三，{key}能够帮助学生复盘思路，发现论证跳步、概念混用和证据不足。很多学生不是没有观点，而是不知道自己的观点哪里断裂。AI 对提纲、作文、解题过程和口头表达进行追问式反馈，可以让学生意识到“我会说”与“我说得成立”之间的差距。综合学习能力最终要落在迁移和表达上，复盘恰恰能把零散知识变成可迁移的方法。",
         ]
-        value = "因此，我方认为只要把 AI 放在辅助位置，并保留教师指导和学生主动思考，它提升的是学习过程中的反馈、材料和复盘能力。"
+        value = "当然，我方并不主张把 AI 当成万能老师，更不主张让学生复制答案。正因为存在依赖风险，学校才应把 AI 纳入明确规则：先由学生独立作答，再用 AI 检查漏洞，最后由学生解释修改理由。这样，工具被限制在辅助位置，学生仍然承担理解、判断和表达的责任。"
     else:
         points = [
-            f"第一，{key}如果被过度使用，会让学生把检索、判断和表达外包出去，长期看会削弱独立建构知识的能力。",
-            f"第二，{key}提供的答案并不天然可靠，学生若缺少核验能力，容易把不准确材料当成结论使用。",
-            f"第三，{key}无法替代真实课堂中的交流、追问和情境判断，而这些才是综合学习能力的重要来源。",
+            f"第一，{key}如果被过度使用，会让学生把检索、判断和表达外包出去。综合学习能力的形成依赖困难中的主动加工：学生要自己读材料、比较信息、尝试表达，再从错误中修正。AI 如果直接给出答案、提纲和漂亮措辞，学生最容易训练出的不是能力，而是调用工具的熟练度。短期看效率提高，长期看独立建构知识的机会被压缩。",
+            f"第二，{key}提供的答案并不天然可靠。青少年还处在判断标准建立阶段，如果没有足够的事实核验能力，很容易把看似流畅的解释当成正确结论。学习能力的关键不是得到一个像样答案，而是知道答案为什么成立、边界在哪里、证据是否足够。AI 的不确定性会把核验负担提前压到学生身上，而这恰恰是许多学生尚未具备的能力。",
+            f"第三，{key}无法替代真实课堂中的交流、追问和情境判断。综合学习能力包括倾听、提问、协作、表达和价值判断，这些能力是在真实互动中被磨出来的。AI 可以模拟反馈，却不能承担教师观察学生状态、同伴互相质疑、课堂即时调整这些复杂过程。把提升能力寄托在工具上，容易忽视学习共同体本身的训练价值。",
         ]
-        value = "因此，我方认为 AI 可以作为工具存在，但它本身并不必然提升综合学习能力，关键能力仍来自主动思考、真实互动和持续训练。"
+        value = "我方也承认，AI 在查资料、改错别字、提供练习题方面可以作为辅助工具存在。但“可以辅助”不等于“会提升综合学习能力”。如果使用规则、教师监督和学生自律稍有不足，它更可能让学生绕过困难，而不是穿过困难。"
     advice_note = ""
     if advice:
         advice_note = "根据前轮建议，本稿特别补强定义、三条论证链和结尾回扣标准。"
@@ -153,7 +202,7 @@ def _fallback_opening(topic: str, side: Literal["affirmative", "negative"], advi
             f"主席、评委、对方辩友，大家好。我方作为{side_label}，认为本题的核心不是讨论工具是否新奇，而是判断它能否稳定促进学生的理解、迁移和表达。这里的综合学习能力，指的是获取信息、辨析信息、形成观点并把观点清楚表达出来的能力。{advice_note}",
             *points,
             value,
-            f"综上，我方的判断标准是，哪一方更能说明学生能力是否被真实训练、稳定迁移并长期保留，哪一方就更符合本辩题的要求。",
+            f"综上，我方的判断标准是，哪一方更能说明学生能力是否被真实训练、稳定迁移并长期保留，哪一方就更符合本辩题的要求。按照这个标准，{side_label}更能解释学习能力的来源、条件和长期结果，因此我方立场成立。",
         ]
     )
 
@@ -166,7 +215,7 @@ async def _generate_opening_with_ai(
 ) -> str:
     messages = _opening_generation_messages(topic, side, advice, previous_drafts)
     try:
-        draft = await chat_completion(messages, temperature=0.55, max_tokens=1800, operation="opening_training_auto_improve")
+        draft = await chat_completion(messages, temperature=0.55, max_tokens=3600, operation="opening_training_auto_improve")
         return _clean_speech_text(draft)
     except (DeepSeekError, Exception):
         return _fallback_opening(topic, side, advice)
@@ -186,7 +235,9 @@ def _opening_generation_messages(
             "role": "system",
             "content": (
                 "你是一名资深中文辩论一辩教练。只输出可朗读的完整一辩立论正文。"
-                "不要使用破折号、星号粗体、代码块或复杂分点。语言要自然，适合现场朗读。"
+                "必须输出 Markdown 文本，可使用二级标题和自然段，但不要使用代码块。"
+                "不要使用破折号、星号粗体或复杂分点。语言要自然，适合现场朗读。"
+                "目标长度为 800 到 1000 个汉字，不能只写提纲，不能在三个论点和结尾收束完成前结束。"
             ),
         },
         {
@@ -195,7 +246,8 @@ def _opening_generation_messages(
                 f"辩题：{topic}\n持方：{side_label}\n"
                 f"此前修改建议：\n{advice_text}\n"
                 f"此前稿件：\n{previous_text}\n"
-                "请生成一篇包含定义、判断标准、三个论点和结尾收束的一辩立论。"
+                "请生成一篇完整一辩立论，必须包含定义、判断标准、三个有证据意识的论点、对反方可能攻击的预判和结尾收束。"
+                "全文要像正式比赛发言，使用 Markdown 自然段呈现，不要列清单，不要用破折号，不要用星号。"
             ),
         },
     ]
@@ -212,7 +264,7 @@ async def _stream_opening_with_ai(
         async for chunk in chat_completion_stream(
             messages,
             temperature=0.55,
-            max_tokens=1800,
+            max_tokens=3600,
             operation="opening_training_auto_improve_stream",
         ):
             if chunk:
@@ -240,6 +292,22 @@ def _analysis_summary(analysis: dict) -> str:
     )
 
 
+def _judge_score_block(analysis: dict) -> str:
+    summary = analysis.get("score_summary", {})
+    dimensions = analysis.get("dimensions", [])
+    advice = summary.get("improvement_suggestions") or analysis.get("revision_advice", [])
+    dimension_text = "；".join(
+        f"{item.get('label')} {item.get('score')}/{item.get('max_score')}" for item in dimensions
+    )
+    advice_text = "；".join(advice[:4])
+    return (
+        f"综合分数：{summary.get('overall', analysis.get('score', 0))} 分。\n"
+        f"多维度评分：{dimension_text}。\n"
+        f"评价：{summary.get('evaluation', '暂无评价')}。\n"
+        f"改进建议：{advice_text}。"
+    )
+
+
 def _review_generation_messages(
     topic: str,
     side: Literal["affirmative", "negative"],
@@ -256,6 +324,8 @@ def _review_generation_messages(
         f"待审核立论：\n{draft}\n\n"
         "请以严格辩论裁判兼一辩教练身份，输出详细审核意见。"
         "必须包含：是否达标、结构问题、论据问题、事实核验风险、对方可能攻击点、下一版具体改法。"
+        "不要另造 KB-A 等资料编号；如果提到资料引用，只使用系统已有编号。"
+        "审核意见不少于五百个汉字，要具体到可修改的句子和论证链，不要只给一两句结论。"
         "语言要自然，适合前端直接朗读，不要使用破折号、星号粗体或代码块。"
     )
     return [
@@ -271,6 +341,7 @@ def _detailed_review_fallback(topic: str, side: Literal["affirmative", "negative
     side_label = "正方" if side == "affirmative" else "反方"
     advice = " ".join(analysis.get("revision_advice", []))
     return (
+        f"{_judge_score_block(analysis)}\n\n"
         f"本轮审核：{side_label}一辩稿目前得到 {analysis.get('score', 0)} 分，还不能按满分稿处理。"
         f"从一辩标准看，它必须同时完成定义、判断标准、三条主论证、证据支撑、反方预判和价值收束。"
         f"现在最需要检查的是，定义是否能直接服务于辩题「{topic}」，标准是否能让裁判据此比较正反双方，"
@@ -293,12 +364,12 @@ async def _review_opening_with_ai(
         review = await chat_completion(
             _review_generation_messages(topic, side, draft, analysis),
             temperature=0.35,
-            max_tokens=1400,
+            max_tokens=2600,
             operation="opening_training_review",
         )
         cleaned = _clean_speech_text(review)
         if len(cleaned) >= 180 and any(term in cleaned for term in ("结构", "论据", "下一版", "修改")):
-            return cleaned
+            return f"{_judge_score_block(analysis)}\n\n{cleaned}"
     except (DeepSeekError, Exception):
         pass
     return _detailed_review_fallback(topic, side, draft, analysis)
@@ -311,11 +382,13 @@ async def _stream_review_with_ai(
     analysis: dict,
 ) -> AsyncIterator[str]:
     full_text = ""
+    score_block = f"{_judge_score_block(analysis)}\n\n"
+    yield score_block
     try:
         async for chunk in chat_completion_stream(
             _review_generation_messages(topic, side, draft, analysis),
             temperature=0.35,
-            max_tokens=1400,
+            max_tokens=2600,
             operation="opening_training_review_stream",
         ):
             if not chunk:
@@ -563,7 +636,7 @@ async def polish_opening_draft(
                 },
             ],
             temperature=0.45,
-            max_tokens=1800,
+            max_tokens=3200,
             operation="opening_training_polish",
         )
         polished = _clean_speech_text(polished)

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Check, Link2 } from "lucide-react";
+import { useErrorDialog } from "./ErrorDialogProvider.jsx";
 import { buildJoinUrl, buildShareUrl, copyJoinUrl, copyShareUrl } from "../utils/shareLink.js";
 
 export default function CopyShareLinkButton({
@@ -8,6 +9,7 @@ export default function CopyShareLinkButton({
   label = "复制分享链接",
   type = "share",
 }) {
+  const { reportError } = useErrorDialog();
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
 
@@ -21,8 +23,13 @@ export default function CopyShareLinkButton({
       window.setTimeout(() => setCopied(false), 2000);
     } catch (e) {
       setError(e.message || "复制失败");
+      reportError({
+        title: "复制链接失败",
+        message: e.message || "复制失败",
+        source: `CopyShareLinkButton.${type}`,
+      });
     }
-  }, [debateId, type]);
+  }, [debateId, reportError, type]);
 
   if (!debateId || debateId === "demo-room") return null;
 

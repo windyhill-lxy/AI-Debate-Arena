@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import FloatingConfidenceCamera from "../components/FloatingConfidenceCamera.jsx";
 import FloatingOnlineCamera from "../components/FloatingOnlineCamera.jsx";
 import { useOnlinePeerCamera } from "../hooks/useOnlinePeerCamera.js";
@@ -9,9 +10,11 @@ import DebateRightRail from "../features/debate-room/components/DebateRightRail.
 import DebateRoomDock from "../features/debate-room/components/DebateRoomDock.jsx";
 import { useDebateRoom } from "../features/debate-room/hooks/useDebateRoom.js";
 import { isTeamDiscussionSegment } from "../features/debate-room/utils.js";
+import { shouldShowOnlineWaitingBanner } from "../features/debate-room/onlineWaitingBanner.js";
 import { useDebateLeaveGuard } from "../hooks/useDebateLeaveGuard.js";
 import BrowserNavBar from "../components/BrowserNavBar.jsx";
 import { isCompactViewport, isGuestWeb } from "../utils/visitContext.js";
+import { collectCitationSources } from "../utils/citationMap.jsx";
 import "../styles/guest-mobile.css";
 
 function isOnlineDebater(participant) {
@@ -40,11 +43,25 @@ function seatLabelFromRoom(room) {
   return "";
 }
 
+function RoomLoadingScreen({ status }) {
+  return (
+    <main className="app-shell app-shell--with-dock app-shell--loading" translate="no">
+      <section className="room-loading-panel" role="status" aria-live="polite">
+        <Loader2 size={28} className="spin" />
+        <h1>正在进入辩论室</h1>
+        <p>{status || "正在同步房间状态，请稍候…"}</p>
+      </section>
+    </main>
+  );
+}
+
 export default function DebateRoom({ leaveGuardRef }) {
   const navigate = useNavigate();
   const room = useDebateRoom();
+  const onlineCameraInitiallyOn = room.initialCameraEnabled === true;
   const [leftTab, setLeftTab] = useState(null);
   const [rightTab, setRightTab] = useState(null);
+  const [selectedCitation, setSelectedCitation] = useState(null);
   const [compactViewport, setCompactViewport] = useState(() => isCompactViewport());
   const autoTeamSegmentRef = useRef(null);
   const showConfidenceCamera =
@@ -62,18 +79,26 @@ export default function DebateRoom({ leaveGuardRef }) {
     debateId: room.debate?.id,
     participantId: room.participant?.id,
     enabled: showOnlineCamera,
+    initialLocalOn: onlineCameraInitiallyOn,
     sendSignal: room.sendWebRtcSignal,
     subscribeWebRtcSignal: room.subscribeWebRtcSignal,
   });
   const onlineCameraBundle = { ...onlineCamera, participantIds: peerParticipantIds };
 
-  const connectedDebaters = countConnectedDebaters(room.debate.participants);
+  const connectedDebaters =
+    typeof room.debate.online_connected_debaters === "number"
+      ? room.debate.online_connected_debaters
+      : countConnectedDebaters(room.debate.participants);
   const waitingForGuests =
     !room.isLocal &&
-    room.mode === "online_match" &&
-    room.debate.online_ready &&
-    connectedDebaters < 2;
+    shouldShowOnlineWaitingBanner(room.debate, connectedDebaters);
   const ownSeatLabel = seatLabelFromRoom(room);
+  const citationSourceMap = useMemo(
+    () => collectCitationSources(room.debate, room.streaming?.sources || []),
+    [room.debate, room.streaming?.sources],
+  );
+  const onCitationSelect = useCallback((citation) => setSelectedCitation(citation), []);
+  const onCitationClose = useCallback(() => setSelectedCitation(null), []);
 
   const shouldGuardLeave = !room.isLocal && room.debate?.phase !== "finished";
   const confirmLeave = useDebateLeaveGuard(
@@ -123,6 +148,21 @@ export default function DebateRoom({ leaveGuardRef }) {
   }
 
   useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key !== "Escape") return;
+      if (!leftTab && !rightTab && !selectedCitation) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      setSelectedCitation(null);
+      setLeftTab(null);
+      setRightTab(null);
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [leftTab, rightTab, selectedCitation]);
+
+  useEffect(() => {
     if (room.isLocal || room.debate?.phase === "finished") return;
     const inTeamDiscussion = isTeamDiscussionSegment(room.debate);
     const segmentKey = `${room.debate?.schedule_index ?? 0}:${room.debate?.segment_label || ""}`;
@@ -146,8 +186,12 @@ export default function DebateRoom({ leaveGuardRef }) {
     room.debate?.segment_label,
   ]);
 
+  if (room.hydrating) {
+    return <RoomLoadingScreen status={room.status} />;
+  }
+
   return (
-    <main className="app-shell app-shell--with-dock">
+    <main className="app-shell app-shell--with-dock" translate="no">
       {waitingForGuests && (
         <div className="online-waiting-banner" role="status">
           等待其他辩手加入… 请将邀请链接发给同学，对方完成加入后即可开始。
@@ -161,7 +205,7 @@ export default function DebateRoom({ leaveGuardRef }) {
         onRequestLeave={confirmLeave}
         health={room.health}
         healthError={room.healthError}
-        pipelineHint={room.pipelineHint}
+        pipelineHint={room.pipelineHintText}
         timing={room.timing}
         setTiming={room.setTiming}
         visibility={room.visibility}
@@ -178,6 +222,25 @@ export default function DebateRoom({ leaveGuardRef }) {
         activeAgent={room.activeAgent}
         activeTab={leftTab}
         setActiveTab={setLeftTab}
+        rightActiveTab={rightTab}
+        setRightActiveTab={setRightTab}
+        showStrategyTab={room.visibility === "context"}
+      />
+
+      <DebateRightRail
+        debate={room.debate}
+        activeAgent={room.activeAgent}
+        aiStrategyNotes={room.aiStrategyNotes}
+        streaming={room.streaming}
+        participant={room.participant}
+        teamDiscussions={room.teamDiscussions}
+        activeTab={rightTab}
+        setActiveTab={setRightTab}
+        visibility={room.visibility}
+        userSide={room.userSide}
+        hideDock
+        sourceMap={citationSourceMap}
+        onCitationSelect={onCitationSelect}
       />
 
       <DebateCenterStage
@@ -216,20 +279,10 @@ export default function DebateRoom({ leaveGuardRef }) {
         assist={room.assist}
         autoScroll={room.autoScroll}
         setAutoScroll={room.setAutoScroll}
-      />
-
-      <DebateRightRail
-        debate={room.debate}
-        activeAgent={room.activeAgent}
-        aiStrategyNotes={room.aiStrategyNotes}
-        streaming={room.streaming}
-        participant={room.participant}
-        teamDiscussions={room.teamDiscussions}
-        workflowColumns={room.workflowColumns}
-        activeTab={rightTab}
-        setActiveTab={setRightTab}
-        visibility={room.visibility}
-        userSide={room.userSide}
+        citationSourceMap={citationSourceMap}
+        selectedCitation={selectedCitation}
+        onCitationSelect={onCitationSelect}
+        onCitationClose={onCitationClose}
       />
 
       {compactViewport && (
@@ -246,10 +299,10 @@ export default function DebateRoom({ leaveGuardRef }) {
           </button>
           <button
             type="button"
-            className={rightTab === "online" || rightTab === "turn" ? "is-active" : ""}
-            onClick={() => openMobileRight(rightTab ? null : room.mode === "online_match" ? "online" : "turn")}
+            className={rightTab === "turn" ? "is-active" : ""}
+            onClick={() => openMobileRight(rightTab === "turn" ? null : "turn")}
           >
-            {room.mode === "online_match" ? "联机" : "回合"}
+            回合
           </button>
         </nav>
       )}

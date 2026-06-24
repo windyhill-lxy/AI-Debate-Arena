@@ -1,6 +1,15 @@
 from datetime import datetime, timezone
 
-from app.models import DebateMessage, DebateMode, DebateState, DebateTiming, DebateVisibility, Source, default_agents
+from app.models import (
+    ArgumentBankItem,
+    DebateMessage,
+    DebateMode,
+    DebateState,
+    DebateTiming,
+    DebateVisibility,
+    Source,
+    default_agents,
+)
 from app.services.message_visibility import (
     format_debate_history,
     is_internal_message,
@@ -176,6 +185,44 @@ def test_viewer_payload_god_mode_shows_both_internal():
     contents = [m["content"] for m in payload["messages"]]
     assert "正方内部" in contents
     assert "反方内部" in contents
+
+
+def test_viewer_payload_never_filters_opponent_argument_bank():
+    debate = DebateState(
+        topic="论据库公开测试",
+        mode=DebateMode.user_affirmative,
+        visibility=DebateVisibility.context,
+        timing=DebateTiming.limited,
+        turn_seconds=60,
+        format="formal",
+        agents=default_agents(),
+        user_side="affirmative",
+        user_position=2,
+    )
+    debate.argument_bank_locked = True
+    debate.argument_bank["affirmative"] = [
+        ArgumentBankItem(
+            id="AFF-1",
+            side="affirmative",
+            title="AI作业批改订正率提升",
+            claim="2024年某省重点中学引入 AI 作业批改系统后，学生错题订正率提升近30%。",
+            source="AI 检索真实论据入库",
+        )
+    ]
+    debate.argument_bank["negative"] = [
+        ArgumentBankItem(
+            id="NEG-1",
+            side="negative",
+            title="AI解题后自主解题下降",
+            claim="2021年一项针对高中生的调查显示，频繁使用 AI 解题后自主解题能力下降。",
+            source="AI 检索真实论据入库",
+        )
+    ]
+
+    payload = debate_payload_for_viewer(debate, viewer_side="affirmative", viewer_mode="own_side_only")
+
+    assert [item["id"] for item in payload["argument_bank"]["affirmative"]] == ["AFF-1"]
+    assert [item["id"] for item in payload["argument_bank"]["negative"]] == ["NEG-1"]
 
 
 def test_auto_runner_payload_filters_internal_messages():

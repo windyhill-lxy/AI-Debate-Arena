@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, Save } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Save } from "lucide-react";
+import { useErrorDialog } from "./ErrorDialogProvider.jsx";
 import { API_BASE } from "../utils/apiBase.js";
+import { errorDialogPayload, parseHttpErrorBody } from "../utils/httpError.js";
 
 const KEY_GROUPS = [
   {
@@ -45,7 +47,7 @@ const MODEL_SEATS = [
 
 async function fetchRuntimeSettings() {
   const response = await fetch(`${API_BASE}/api/debates/runtime-settings`);
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
 }
 
@@ -55,11 +57,12 @@ async function saveRuntimeSettings(settings) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
 }
 
 export default function RuntimeSettingsPanel({ className = "" }) {
+  const { reportError } = useErrorDialog();
   const [apiKeys, setApiKeys] = useState({});
   const [savedKeys, setSavedKeys] = useState({});
   const [keyMasks, setKeyMasks] = useState({});
@@ -67,6 +70,7 @@ export default function RuntimeSettingsPanel({ className = "" }) {
   const [hint, setHint] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [visibleKeys, setVisibleKeys] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,13 +80,14 @@ export default function RuntimeSettingsPanel({ className = "" }) {
       setSavedKeys(data.api_keys || {});
       setKeyMasks(data.api_key_masks || {});
       setAgentModels(data.models || {});
-      setApiKeys({});
+      setApiKeys(data.api_keys || {});
     } catch (error) {
       setHint(`加载失败：${error.message || "请确认后端已启动"}`);
+      reportError(errorDialogPayload(error, "加载运行设置失败", "RuntimeSettingsPanel.load", "请确认后端已启动"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [reportError]);
 
   useEffect(() => {
     load();
@@ -105,10 +110,11 @@ export default function RuntimeSettingsPanel({ className = "" }) {
       setSavedKeys(mergedKeys);
       setKeyMasks(result.api_key_masks || {});
       setAgentModels(result.models || {});
-      setApiKeys({});
+      setApiKeys(result.api_keys || mergedKeys);
       setHint("已保存，后续 AI 调用会使用这里的配置。");
     } catch (error) {
       setHint(`保存失败：${error.message || "请确认后端已启动"}`);
+      reportError(errorDialogPayload(error, "保存运行设置失败", "RuntimeSettingsPanel.save", "请确认后端已启动"));
     } finally {
       setSaving(false);
     }
@@ -120,7 +126,7 @@ export default function RuntimeSettingsPanel({ className = "" }) {
         <KeyRound size={18} /> API Key 与模型
       </h2>
       <p className="admin-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-        配置生成式 AI、TTS/ASR 等服务的密钥与每位辩手使用的模型。留空 API Key 输入框则保留已保存的值。
+        配置生成式 AI、TTS/ASR 等服务的密钥与每位辩手使用的模型。已从 .env 或设置文件读取到的密钥会以密码形式显示。
       </p>
       {loading ? (
         <p style={{ fontSize: 13 }}>加载配置中…</p>
@@ -137,12 +143,23 @@ export default function RuntimeSettingsPanel({ className = "" }) {
                   {group.providers.map(([provider, label]) => (
                     <label key={provider} className="runtime-settings-field">
                       <span>{label}</span>
-                      <input
-                        type="password"
-                        value={apiKeys[provider] || ""}
-                        onChange={(event) => setApiKeys((prev) => ({ ...prev, [provider]: event.target.value }))}
-                        placeholder={keyMasks[provider] ? `已保存 ${keyMasks[provider]}` : "填写后保存"}
-                      />
+                      <div className="runtime-settings-secret">
+                        <input
+                          type={visibleKeys[provider] ? "text" : "password"}
+                          value={apiKeys[provider] || ""}
+                          onChange={(event) => setApiKeys((prev) => ({ ...prev, [provider]: event.target.value }))}
+                          placeholder={keyMasks[provider] ? `已读取 ${keyMasks[provider]}` : "填写后保存"}
+                        />
+                        <button
+                          type="button"
+                          className="runtime-settings-eye"
+                          onClick={() => setVisibleKeys((prev) => ({ ...prev, [provider]: !prev[provider] }))}
+                          title={visibleKeys[provider] ? "隐藏密钥" : "显示密钥"}
+                        >
+                          {visibleKeys[provider] ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                      {keyMasks[provider] && <small>已读取 {keyMasks[provider]}</small>}
                     </label>
                   ))}
                 </div>

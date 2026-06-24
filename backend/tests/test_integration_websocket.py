@@ -34,7 +34,12 @@ def _advance_to_speaker_turn(client: TestClient, debate_id: str, max_steps: int 
         if doc.get("phase") == "finished":
             break
         speaker = str(doc.get("active_speaker_id") or "")
-        if speaker.startswith(("aff_", "neg_")):
+        phase = str(doc.get("phase") or "")
+        label = str(doc.get("segment_label") or "")
+        is_public_speech = phase not in {"opening_prep", "free_prep", "closing_prep"} and not any(
+            marker in label for marker in ("任务分配", "队内讨论", "真实论据入库")
+        )
+        if speaker.startswith(("aff_", "neg_")) and is_public_speech:
             return
         step = client.post(f"/api/debates/{debate_id}/step")
         if step.status_code != 200:

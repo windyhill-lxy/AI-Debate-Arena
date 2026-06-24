@@ -107,9 +107,9 @@ class Settings(BaseSettings):
     ngrok_authtoken: str | None = None
     # 逗号分隔；生产部署时改为实际前端域名
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    # 允许局域网开发机访问（如 192.168.x.x:5173 / 10.x.x.x:5173 / Radmin 26.x.x.x:5173）
+    # 允许局域网开发机访问（如 192.168.x.x:5173 / 10.x.x.x:5173）
     cors_origin_regex: str = (
-        r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|26\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(:5173)?$"
+        r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)(:5173)?$"
         r"|^https://[a-z0-9-]+\.trycloudflare\.com$"
         r"|^https://[a-z0-9-]+\.ngrok-free\.app$"
         r"|^https://[a-z0-9-]+\.ngrok-free\.dev$"

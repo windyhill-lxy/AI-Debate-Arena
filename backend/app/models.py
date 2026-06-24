@@ -138,6 +138,7 @@ class DebateCreate(BaseModel):
     schedule_template: str = "formal_4v4"
     materials: list[MaterialInput] = Field(default_factory=list)
     session_id: str | None = None
+    opening_evidence_prep_id: str | None = None
     models: dict[str, str] = Field(default_factory=dict)
 
 
@@ -269,7 +270,7 @@ def default_agents() -> list[AgentRole]:
             position=3,
             avatar="/src/assets/agents/agent-k.png",
             model=pro,
-            persona="正方三辩：盘问与小结，善于抓住对方论证缝隙。",
+            persona="正方三辩：质辩提问与质辩小结，善于设计问题并总结对方回答漏洞。",
         ),
         AgentRole(
             id="aff_4",
@@ -278,7 +279,7 @@ def default_agents() -> list[AgentRole]:
             position=4,
             avatar="/src/assets/agents/agent-green.png",
             model=pro,
-            persona="正方四辩：质询与总结陈词，收束全场、升华价值。",
+            persona="正方四辩：质辩应答与总结陈词，收束全场、升华价值。",
         ),
         AgentRole(
             id="neg_1",
@@ -305,7 +306,7 @@ def default_agents() -> list[AgentRole]:
             position=3,
             avatar="/src/assets/agents/agent-z.png",
             model=pro,
-            persona="反方三辩：盘问与小结，质询犀利、战场梳理清晰。",
+            persona="反方三辩：质辩提问与质辩小结，质询犀利、战场梳理清晰。",
         ),
         AgentRole(
             id="neg_4",
@@ -314,7 +315,7 @@ def default_agents() -> list[AgentRole]:
             position=4,
             avatar="/src/assets/agents/agent-sweat.png",
             model=pro,
-            persona="反方四辩：质询与总结陈词，先声夺人、终局收束。",
+            persona="反方四辩：质辩应答与总结陈词，先声夺人、终局收束。",
         ),
         AgentRole(
             id="judge",
@@ -360,12 +361,12 @@ def workflow_template() -> list[WorkflowNode]:
         ("topic_parse", "辩题解析", "input", "抽取概念、争点、评价标准。", "赛前准备", 1),
         ("stance_assign", "确定持方", "action", "锁定正反方立场与胜负标准。", "赛前准备", 2),
         ("role_confirm", "组内角色确认", "action", "确认一至四辩与裁判职责。", "赛前准备", 3),
-        ("opening_task_assign", "一辩任务分配", "action", "一辩拆解立论框架与队友任务。", "立论前准备", 1),
-        ("task_reason_check", "大模型判断任务合理性", "router", "检查分工是否覆盖定义、标准、论据。", "立论前准备", 2),
-        ("rag_opening_args", "RAG 检索:立论论据库", "retrieval", "检索开篇立论可验证论据。", "立论前准备", 3),
-        ("team_opening_discussion", "队内讨论(立论)", "llm", "组内协调主论点与风险边界。", "立论前准备", 4),
-        ("point_split_confirm", "论点分工确认", "action", "确认每位辩手负责的论点。", "立论前准备", 5),
-        ("evidence_split_confirm", "论据分配确认", "action", "把事实、案例、类比分配到辩手。", "立论前准备", 6),
+        ("opening_evidence_bank", "AI 检索真实论据入库", "retrieval", "按正反方分别检索真实案例、数据、报告并入库。", "立论前准备", 1),
+        ("opening_task_assign", "一辩任务分配", "action", "一辩基于论据库拆解立论框架与队友任务。", "立论前准备", 2),
+        ("task_reason_check", "大模型判断任务合理性", "router", "检查分工是否覆盖定义、标准、论据。", "立论前准备", 3),
+        ("point_split_confirm", "论点分工确认", "action", "确认每位辩手负责的论点。", "立论前准备", 4),
+        ("evidence_split_confirm", "论据分配确认", "action", "确认每个论点需要的事实类型。", "立论前准备", 5),
+        ("team_opening_discussion", "队内讨论(立论)", "llm", "组内研究如何使用本方论据库。", "立论前准备", 6),
         ("opening_strategy_lock", "立论策略锁定", "action", "锁定开篇标准与表达节奏。", "立论前准备", 7),
         ("rag_retrieve", "RAG 检索:增强论点", "retrieval", "为当前发言检索可引用资料。", "立论/驳论/总结", 1),
         ("strategy_plan", "策略规划", "llm", "按当前环节生成攻防路线。", "立论/驳论/总结", 2),

@@ -103,6 +103,8 @@ export function JoinWizardPanels({
   position,
   setPosition,
   occupiedSeats,
+  cameraEnabled = false,
+  setCameraEnabled,
   topicReadOnlyHint = "辩题与资料由房主设定，加入方不可修改。",
 }) {
   let panel = null;
@@ -147,7 +149,12 @@ export function JoinWizardPanels({
       </div>
     );
   } else if (currentStep === "camera") {
-    panel = <OnlineCameraDebug />;
+    panel = (
+      <OnlineCameraDebug
+        cameraEnabled={cameraEnabled}
+        onCameraEnabledChange={setCameraEnabled}
+      />
+    );
   } else if (currentStep === "confirm") {
     panel = (
       <div className="join-wizard__panel">
@@ -162,6 +169,9 @@ export function JoinWizardPanels({
               {side === "affirmative" ? "正方" : "反方"}
               {position} 辩 · {name}
             </strong>
+          </li>
+          <li>
+            摄像头：<strong>{cameraEnabled ? "使用摄像头" : "不使用摄像头"}</strong>
           </li>
         </ul>
       </div>

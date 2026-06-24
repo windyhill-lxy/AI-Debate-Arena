@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../utils/apiBase.js";
+import { useErrorDialog } from "./ErrorDialogProvider.jsx";
 
 function normalizeMonitorError(message) {
   if (!message) return "";
@@ -21,6 +22,7 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
   const [cameraError, setCameraError] = useState("");
   const [monitorStatus, setMonitorStatus] = useState(null);
   const [statusReady, setStatusReady] = useState(false);
+  const { reportError } = useErrorDialog();
   const running = Boolean(monitorStatus?.running);
   const useBackendPreview = enabled && statusReady && running && !monitorStatus?.last_error;
 
@@ -37,7 +39,9 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
         const insecureHint =
           window.location.protocol !== "https:" &&
           !["localhost", "127.0.0.1"].includes(window.location.hostname);
-        setCameraError(insecureHint ? "摄像头仅支持 HTTPS 或 localhost 访问" : "浏览器不支持摄像头");
+        const message = insecureHint ? "摄像头仅支持 HTTPS 或 localhost 访问" : "浏览器不支持摄像头";
+        setCameraError(message);
+        reportError({ title: "摄像头不可用", message, source: "ConfidenceCameraPreview.unsupported" });
         return;
       }
       try {
@@ -67,9 +71,18 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
       } catch (err) {
         const message = err?.message || "无法打开摄像头，请检查浏览器权限";
         if (/video source|not found|notreadable|in use/i.test(message)) {
-          setCameraError("摄像头被占用：请关闭其他占用页面，或仅使用后端自信度训练。");
+          const mapped = "摄像头被占用：请关闭其他占用页面，或仅使用后端自信度训练。";
+          setCameraError(mapped);
+          reportError(
+            { title: "摄像头启动失败", message: mapped, details: err?.stack || message, source: "ConfidenceCameraPreview.camera" },
+            { dedupeKey: `confidence-camera:${mapped}`, throttleMs: 30000 },
+          );
         } else {
           setCameraError(message);
+          reportError(
+            { title: "摄像头启动失败", message, details: err?.stack || "", source: "ConfidenceCameraPreview.camera" },
+            { dedupeKey: `confidence-camera:${message}`, throttleMs: 30000 },
+          );
         }
       }
     }
@@ -80,7 +93,7 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, [enabled, useBackendPreview]);
+  }, [enabled, reportError, useBackendPreview]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -95,8 +108,16 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
           setMonitorStatus(data);
           setStatusReady(true);
         }
-      } catch {
-        /* 后端未启动 */
+      } catch (error) {
+        reportError(
+          {
+            title: "自信度状态同步失败",
+            message: error?.message || "无法连接自信度训练服务",
+            details: error?.stack || "",
+            source: "ConfidenceCameraPreview.status",
+          },
+          { dedupeKey: "confidence-status", throttleMs: 30000 },
+        );
       }
     }
 
@@ -106,7 +127,7 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
       stopped = true;
       clearInterval(timer);
     };
-  }, [enabled]);
+  }, [enabled, reportError]);
 
   useEffect(() => {
     if (!useBackendPreview) return undefined;

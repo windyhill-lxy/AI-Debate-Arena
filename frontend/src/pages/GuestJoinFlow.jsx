@@ -10,6 +10,8 @@ import {
   validateSeatStep,
 } from "../components/JoinWizardSteps.jsx";
 import { debateRequest } from "../features/debate-room/api.js";
+import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
+import { errorDialogPayload } from "../utils/httpError.js";
 import { useDebateHealth } from "../hooks/useDebateHealth.js";
 import { firstFreePosition, isSeatTaken } from "../utils/joinSeatUtils.js";
 import { participantStorageKey, saveStoredParticipant } from "../utils/participantStorage.js";
@@ -31,8 +33,10 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
   const [position, setPosition] = useState(1);
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState("");
+  const [cameraEnabled, setCameraEnabled] = useState(false);
   const [lastPollAt, setLastPollAt] = useState(null);
   const pollStateRef = useRef({ phase: "", debateId: "" });
+  const { reportError } = useErrorDialog();
 
   const loadDebate = useCallback(async (debateId) => {
     const data = await debateRequest(`/api/debates/${debateId}`);
@@ -51,12 +55,16 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
             setWaitMessage("等待房主开启房间…");
           }
         })
-        .catch(() => {
+        .catch((error) => {
           setPhase("waiting_create");
           setWaitMessage("对方正在创建房间中，请稍候…");
+          reportError(errorDialogPayload(error, "加载加入链接失败", "GuestJoinFlow.initialLoad"), {
+            dedupeKey: `guest-initial:${debateRouteId}`,
+            throttleMs: 30000,
+          });
         });
     }
-  }, [debateRouteId, isSessionEntry, loadDebate]);
+  }, [debateRouteId, isSessionEntry, loadDebate, reportError]);
 
   useEffect(() => {
     if (phase !== "waiting_create" && phase !== "waiting_ready") return undefined;
@@ -115,10 +123,14 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
             }
           }
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setPhase("waiting_create");
           setWaitMessage("对方正在创建房间中，请稍候…");
+          reportError(errorDialogPayload(error, "同步加入状态失败", "GuestJoinFlow.poll"), {
+            dedupeKey: `guest-poll:${sessionId || resolvedDebateId || "pending"}`,
+            throttleMs: 30000,
+          });
         }
       }
     }
@@ -129,7 +141,7 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [isSessionEntry, loadDebate, phase, resolvedDebateId, sessionId]);
+  }, [isSessionEntry, loadDebate, phase, reportError, resolvedDebateId, sessionId]);
 
   useEffect(() => {
     if (phase !== "wizard" || !resolvedDebateId) return undefined;
@@ -139,8 +151,11 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
       try {
         await loadDebate(resolvedDebateId);
         if (!cancelled) setLastPollAt(Date.now());
-      } catch {
-        /* ignore transient poll errors */
+      } catch (error) {
+        reportError(errorDialogPayload(error, "同步席位失败", "GuestJoinFlow.pollSeats"), {
+          dedupeKey: `guest-seat-poll:${resolvedDebateId}`,
+          throttleMs: 30000,
+        });
       }
     }
 
@@ -150,7 +165,7 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [phase, resolvedDebateId, loadDebate]);
+  }, [phase, resolvedDebateId, loadDebate, reportError]);
 
   const occupiedSeats = useMemo(() => {
     const seats = new Set();
@@ -209,10 +224,12 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
           debate: data.debate,
           mode: data.debate.mode,
           participant: data.participant,
+          cameraEnabled,
         },
       });
     } catch (error) {
       setHint(`进入失败：${error.message}`);
+      reportError(errorDialogPayload(error, "进入房间失败", "GuestJoinFlow.confirmEnter"));
     } finally {
       setLoading(false);
     }
@@ -272,6 +289,8 @@ export default function GuestJoinFlow({ sessionId, debateRouteId }) {
           position={position}
           setPosition={setPosition}
           occupiedSeats={occupiedSeats}
+          cameraEnabled={cameraEnabled}
+          setCameraEnabled={setCameraEnabled}
         />
         <JoinWizardActions
           stepIndex={stepIndex}

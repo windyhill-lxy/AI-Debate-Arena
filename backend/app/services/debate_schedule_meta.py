@@ -13,6 +13,8 @@ def is_procedural_segment(debate: DebateState) -> bool:
     label = segment.label or ""
     if segment.phase == "pre_match":
         return False
+    if "真实论据入库" in label:
+        return False
     if segment.phase == "post_match" and "输出裁判报告" in label:
         return False
     return True

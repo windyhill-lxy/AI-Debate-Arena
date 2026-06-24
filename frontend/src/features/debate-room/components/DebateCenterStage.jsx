@@ -8,7 +8,6 @@ import {
   Gavel,
   History,
   Mic,
-  Network,
   PenLine,
   Loader2,
   Send,
@@ -16,6 +15,7 @@ import {
   Volume2,
 } from "lucide-react";
 import CitationDetailPanel from "../../../components/CitationDetailPanel.jsx";
+import CitationMarkdownBody from "../../../components/CitationMarkdownBody.jsx";
 import MarkdownBody from "../../../components/MarkdownBody.jsx";
 import { collectCitationSources } from "../../../utils/citationMap.jsx";
 import { userSpeakerId } from "../utils.js";
@@ -35,8 +35,6 @@ export default function DebateCenterStage({
   streaming,
   audioByMessage,
   playMessageAudio,
-  teamDiscussions,
-  workflowColumns,
   exportFullHistory,
   exportPdf,
   speechFontPx,
@@ -60,13 +58,35 @@ export default function DebateCenterStage({
   assist,
   autoScroll,
   setAutoScroll,
+  citationSourceMap,
+  selectedCitation: controlledSelectedCitation,
+  onCitationSelect: controlledOnCitationSelect,
+  onCitationClose,
 }) {
-  const [selectedCitation, setSelectedCitation] = useState(null);
-  const sourceMap = useMemo(
+  const [localSelectedCitation, setLocalSelectedCitation] = useState(null);
+  const localSourceMap = useMemo(
     () => collectCitationSources({ ...debate, messages: visibleMessages }, showStreamingPublic ? streaming?.sources : []),
     [debate, visibleMessages, showStreamingPublic, streaming?.sources],
   );
-  const onCitationSelect = useCallback((citation) => setSelectedCitation(citation), []);
+  const sourceMap = citationSourceMap || localSourceMap;
+  const selectedCitation = controlledSelectedCitation ?? localSelectedCitation;
+  const onCitationSelect = useCallback(
+    (citation) => {
+      if (controlledOnCitationSelect) {
+        controlledOnCitationSelect(citation);
+        return;
+      }
+      setLocalSelectedCitation(citation);
+    },
+    [controlledOnCitationSelect],
+  );
+  const closeCitation = useCallback(() => {
+    if (onCitationClose) {
+      onCitationClose();
+      return;
+    }
+    setLocalSelectedCitation(null);
+  }, [onCitationClose]);
   const showMatchSummary = debate.phase === "finished" && Boolean(debate.match_summary);
 
   const composerPanel = userInputEnabled ? (
@@ -130,7 +150,7 @@ export default function DebateCenterStage({
           {draft?.trim() ? (
             <>
               <p className="assist-label">发言预览（提交前效果）</p>
-              <MarkdownBody content={draft} />
+              <CitationMarkdownBody content={draft} sourceMap={sourceMap} onCitationSelect={onCitationSelect} />
             </>
           ) : (
             <p className="draft-preview-panel__empty">输入或代拟草稿后，此处显示 Markdown 预览</p>
@@ -142,11 +162,11 @@ export default function DebateCenterStage({
           <div className="panel-title">
             <Brain size={18} /> 发言建议
           </div>
-          <MarkdownBody content={assist.suggestion} />
+          <CitationMarkdownBody content={assist.suggestion} sourceMap={sourceMap} onCitationSelect={onCitationSelect} />
           {assist.counter_rebuttal && (
             <>
               <p className="assist-label">反驳切口</p>
-              <MarkdownBody content={assist.counter_rebuttal} />
+              <CitationMarkdownBody content={assist.counter_rebuttal} sourceMap={sourceMap} onCitationSelect={onCitationSelect} />
             </>
           )}
           {assist.possible_lines?.length > 0 && (
@@ -155,7 +175,7 @@ export default function DebateCenterStage({
               <ul className="assist-lines">
                 {assist.possible_lines.map((line) => (
                   <li key={line}>
-                    <MarkdownBody content={line} />
+                    <CitationMarkdownBody content={line} sourceMap={sourceMap} onCitationSelect={onCitationSelect} />
                   </li>
                 ))}
               </ul>
@@ -231,7 +251,7 @@ export default function DebateCenterStage({
         </div>
       )}
 
-      <CitationDetailPanel citation={selectedCitation} onClose={() => setSelectedCitation(null)} />
+      <CitationDetailPanel citation={selectedCitation} onClose={closeCitation} />
 
       <ResizableSplitPane
         className="center-stage__split"

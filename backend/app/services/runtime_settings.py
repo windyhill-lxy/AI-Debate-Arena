@@ -5,6 +5,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from app.core.config import get_settings
+
 RUNTIME_SETTINGS_PATH = Path(__file__).resolve().parents[3] / "data" / "runtime_settings.json"
 
 
@@ -31,6 +33,28 @@ def apply_runtime_settings(settings: RuntimeSettings) -> RuntimeSettings:
         encoding="utf-8",
     )
     return settings
+
+
+def env_api_keys() -> dict[str, str]:
+    settings = get_settings()
+    candidates = {
+        "deepseek": settings.deepseek_api_key,
+        "dashscope": settings.dashscope_api_key,
+        "qwen": settings.qwen_api_key,
+        "kimi": settings.kimi_api_key_effective,
+        "minimax": settings.minimax_api_key_effective,
+        "aliyun_ak_id": settings.aliyun_ak_id,
+        "aliyun_ak_secret": settings.aliyun_ak_secret,
+        "aliyun_isi_appkey": settings.aliyun_isi_appkey,
+    }
+    return {key: value for key, value in candidates.items() if value}
+
+
+def merged_api_keys(settings: RuntimeSettings | None = None) -> dict[str, str]:
+    runtime = settings or load_runtime_settings()
+    merged = env_api_keys()
+    merged.update({key: value for key, value in runtime.api_keys.items() if value})
+    return merged
 
 
 def mask_key(value: str | None) -> str:

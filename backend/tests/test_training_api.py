@@ -1,6 +1,19 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.training import _opening_generation_messages
+
+
+def test_opening_training_prompt_requires_markdown_and_800_to_1000_chars() -> None:
+    messages = _opening_generation_messages("AI 是否提升学习能力", "affirmative", [], [])
+    prompt = "\n".join(message["content"] for message in messages)
+
+    assert "Markdown" in prompt
+    assert "800" in prompt
+    assert "1000" in prompt
+    assert "一千一百" not in prompt
+    assert "一千五百" not in prompt
+
 
 @pytest.mark.asyncio
 async def test_free_training_prepare_endpoint_is_removed(client: AsyncClient) -> None:

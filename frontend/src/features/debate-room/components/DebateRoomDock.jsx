@@ -1,5 +1,6 @@
 import { Download, Pause, Play, SkipForward, Square, Volume2, Zap } from "lucide-react";
 import DebateProgressBar from "../../../components/debate/DebateProgressBar.jsx";
+import { displaySpeakerName } from "../../../utils/debateDisplay.js";
 
 export default function DebateRoomDock({
   debate,
@@ -40,10 +41,11 @@ export default function DebateRoomDock({
           pipelineHint={pipelineHint}
           autoRunning={debate.auto_running}
           speechInputState={speechInputState}
+          streaming={streaming}
         />
         {streaming?.content && (
           <p className="debate-dock__streaming" aria-live="polite">
-            流式输出中 · {streaming.speaker_name}（{streaming.content.length} 字）
+            流式输出中 · {displaySpeakerName(streaming, debate)}（{streaming.content.length} 字）
           </p>
         )}
       </div>

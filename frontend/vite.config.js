@@ -9,6 +9,9 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: frontendPort,
+    fs: {
+      allow: [".."],
+    },
     allowedHosts: true,
     proxy: {
       "/api": { target: `http://127.0.0.1:${backendPort}`, changeOrigin: true, ws: true },

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import re
 
 from app.models import ArgumentBankItem, DebateMessage, DebateState, Source
+from app.services.llm import chat_completion, extract_json_block
+from app.services.message_visibility import is_internal_message
 
 
 SIDE_PREFIX = {"affirmative": "AFF", "negative": "NEG"}
+KB_CITATION_PATTERN = re.compile(r"\s*[\[【]\s*kb-[^\]】]+\s*[\]】]", re.IGNORECASE)
 TITLE_STOPWORDS = (
     "能够",
     "可以",
@@ -21,6 +25,7 @@ TITLE_STOPWORDS = (
     "将",
 )
 MAX_TITLE_LEN = 18
+OPENING_ARGUMENT_TARGET_PER_SIDE = 10
 FACT_PATTERN = re.compile(
     r"\d{4}\s*年|\d+[\.\d]*\s*%|百分之[一二三四五六七八九十百千万零〇两]+|"
     r"(大学|学院|中学|小学|教育部|OECD|联合国|法院|政府|平台|公司|机构|实验|调查|研究|报告|论文|报道|禁令|规定|法案|通知)"
@@ -35,6 +40,8 @@ def short_argument_title(claim: str) -> str:
     quoted = re.search(r"[“\"《]([^”\"》]{6,80})[”\"》]", claim or "")
     if quoted:
         claim = quoted.group(1)
+    claim = re.sub(r"来源《[^》]+》记录[:：]\s*", "", claim or "")
+    claim = re.sub(r"\s+", "", claim)
     if "AI作业批改" in (claim or "") and "订正率" in (claim or ""):
         return "AI作业批改订正率提升"
     if "韩国AI作业禁令" in (claim or ""):
@@ -45,6 +52,20 @@ def short_argument_title(claim: str) -> str:
         return "AI解题后自主解题下降"
     if "AI" in (claim or "") and "个性化反馈" in (claim or "") and "知识漏洞" in (claim or ""):
         return "AI个性化反馈发现漏洞"
+    if "AI口语陪练" in (claim or "") and "练习频次" in (claim or "") and "提升" in (claim or ""):
+        return "AI口语陪练频次提升"
+    if "AI" in (claim or "") and "教师" in (claim or "") and "面批" in (claim or ""):
+        return "AI批改释放教师面批"
+    lead_pattern = (
+        r"^\d{4}年[^，。；;：:]*?(?:显示|表明|发现|指出|报道|发布|调查|报告|提醒|限制|禁止)"
+        r"[，。；;：:]?"
+    )
+    claim = re.sub(lead_pattern, "", claim or "")
+    claim = re.sub(
+        r"^\d{4}年(?:一项)?(?:针对[^，。；;：:]{0,24}的)?(?:调查|研究|实验|报告)(?:显示|表明|发现|指出)?[，。；;：:]?",
+        "",
+        claim or "",
+    )
     text = re.split(r"[，。；;：:\n]", claim or "", maxsplit=1)[0]
     text = re.sub(r"^.*?(?:例子上用|例如|案例是|调研是)", "", text)
     text = re.sub(r"^我作为[一二三四]辩.*?(?=AI|人工智能|韩国|OECD|20\d{2}年)", "", text)
@@ -64,7 +85,7 @@ def _normalise_key(text: str) -> str:
 
 
 def _argument_key(item: ArgumentBankItem) -> str:
-    return _normalise_key(item.title or item.claim)
+    return _normalise_key(item.claim or item.title)
 
 
 def _is_factual_evidence(text: str, *, allow_rag_source: bool = False) -> bool:
@@ -108,12 +129,110 @@ def _source_display_title(source: Source) -> str:
     generic_title = (
         not title
         or len(re.sub(r"\s+", "", title)) <= 6
-        or any(term in title for term in ("资料", "材料", "AI学习", "学习", "调研", "研究"))
+        or any(term in title for term in ("资料", "材料", "AI学习", "学习", "调研", "研究", "调查", "观察", "风险", "影响"))
     )
     has_concrete_evidence = bool(re.search(r"\d{4}\s*年|\d+[\.\d]*\s*%|禁令|调查|调研|报告|数据显示", excerpt))
     if generic_title or has_concrete_evidence:
-        return short_argument_title(f"{title} {excerpt}".strip())
+        if not generic_title:
+            return short_argument_title(title)
+        return short_argument_title(excerpt or title)
     return short_argument_title(title)
+
+
+def _clean_ai_argument_title(title: str) -> str:
+    text = re.sub(r"\s+", " ", title or "").strip()
+    text = re.sub(r"^[-*\d.、\s]*(?:标题|论据标题|title)\s*[:：]\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[\[【]\s*(?:AFF|NEG)-\d+\s*[\]】]", "", text, flags=re.IGNORECASE)
+    text = text.strip("`'\"“”‘’《》【】[]（）() ，。；;：:、")
+    text = re.sub(r"\s+", "", text)
+    return text[:MAX_TITLE_LEN]
+
+
+def _parse_ai_title_map(raw: str, allowed_ids: set[str]) -> dict[str, str]:
+    try:
+        parsed = extract_json_block(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    rows = parsed.get("titles") or parsed.get("items") or parsed.get("arguments") or []
+    title_map: dict[str, str] = {}
+    if not isinstance(rows, list):
+        return title_map
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = str(
+            row.get("id")
+            or row.get("argument_id")
+            or row.get("论据ID")
+            or row.get("论据编号")
+            or ""
+        ).upper()
+        if item_id not in allowed_ids:
+            continue
+        title = _clean_ai_argument_title(
+            str(row.get("title") or row.get("标题") or row.get("summary_title") or "")
+        )
+        if title:
+            title_map[item_id] = title
+    return title_map
+
+
+async def apply_ai_argument_titles(
+    topic: str,
+    bank: dict[str, list[ArgumentBankItem]],
+    *,
+    debate_id: str | None = None,
+) -> None:
+    candidates = [
+        item
+        for side in ("affirmative", "negative")
+        for item in bank.get(side, [])
+        if item.id and item.claim
+    ]
+    if not candidates:
+        return
+    allowed_ids = {item.id.upper() for item in candidates}
+    payload = [
+        {
+            "id": item.id,
+            "side": "正方" if item.side == "affirmative" else "反方",
+            "claim": item.claim,
+        }
+        for item in candidates
+    ]
+    try:
+        raw = await chat_completion(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是辩论论据库标题编辑。只返回 JSON，不要 Markdown。"
+                        "请为每条论据提炼短标题，标题必须概括论据核心事实或数据，"
+                        "不得截取原文前几个字，不得写成观点口号，不得包含论据编号。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"辩题：{topic}\n"
+                        "请为下列论据分别生成 8 到 16 个汉字左右的标题。"
+                        "输出格式：{\"titles\":[{\"id\":\"AFF-1\",\"title\":\"AI反馈提升订正率\"}]}\n"
+                        f"论据：{json.dumps(payload, ensure_ascii=False)}"
+                    ),
+                },
+            ],
+            temperature=0.2,
+            max_tokens=min(1600, 200 + len(candidates) * 80),
+            debate_id=debate_id,
+            operation="argument_bank_title_summary",
+        )
+    except Exception:
+        return
+    title_map = _parse_ai_title_map(raw, allowed_ids)
+    for item in candidates:
+        title = title_map.get(item.id.upper())
+        if title:
+            item.title = title
 
 
 def _is_generic_system_source(source: Source) -> bool:
@@ -197,12 +316,16 @@ def build_argument_bank_items(
 
 
 def _claim_from_source(topic: str, source: Source, side: str) -> str:
+    title = re.sub(r"\s+", " ", (source.title or "可核验资料").strip())
     excerpt = re.sub(r"\s+", " ", (source.excerpt or source.title or "").strip())
     if not excerpt:
         excerpt = f"围绕{topic}的可检索资料可作为本方论证支撑。"
+    fact = f"来源《{title}》记录：{excerpt}"
+    if source.url:
+        fact = f"{fact} 来源链接：{source.url}"
     if side == "affirmative":
-        return f"{excerpt} 这支持正方关于辩题具有积极效果或可控价值的论证。"
-    return f"{excerpt} 这支持反方关于辩题存在风险、边界或替代方案的论证。"
+        return f"{fact} 这支持正方关于辩题具有积极效果或可控价值的论证。"
+    return f"{fact} 这支持反方关于辩题存在风险、边界或替代方案的论证。"
 
 
 def _source_relevant_to_side(text: str, side: str) -> bool:
@@ -235,7 +358,13 @@ def _source_sides(text: str) -> list[str]:
     return []
 
 
-def build_argument_bank_from_sources(topic: str, sources: list[Source]) -> dict[str, list[ArgumentBankItem]]:
+def build_argument_bank_from_sources(
+    topic: str,
+    sources: list[Source],
+    *,
+    target_side: str | None = None,
+    source_label: str = "RAG 资料入库",
+) -> dict[str, list[ArgumentBankItem]]:
     bank: dict[str, list[ArgumentBankItem]] = {"affirmative": [], "negative": []}
     counters = {"affirmative": 0, "negative": 0}
     for source in sources:
@@ -245,6 +374,8 @@ def build_argument_bank_from_sources(topic: str, sources: list[Source]) -> dict[
         if not _is_factual_evidence(text, allow_rag_source=True):
             continue
         sides = _source_sides(text)
+        if target_side in {"affirmative", "negative"}:
+            sides = [target_side] if target_side in sides or _source_relevant_to_side(text, target_side) else []
         for side in sides:
             counters[side] += 1
             bank[side].append(
@@ -253,7 +384,7 @@ def build_argument_bank_from_sources(topic: str, sources: list[Source]) -> dict[
                     side=side,  # type: ignore[arg-type]
                     title=_source_display_title(source),
                     claim=_claim_from_source(topic, source, side),
-                    source="RAG 资料入库",
+                    source=source_label,
                 )
             )
     return bank
@@ -265,6 +396,56 @@ def add_sources_to_argument_bank(debate: DebateState, sources: list[Source]) -> 
     add_argument_items(debate, "affirmative", bank["affirmative"])
     add_argument_items(debate, "negative", bank["negative"])
     return {side: len(debate.argument_bank.get(side, [])) - before[side] for side in ("affirmative", "negative")}
+
+
+async def add_sources_to_argument_bank_with_ai_titles(debate: DebateState, sources: list[Source]) -> dict[str, int]:
+    before = {side: len(debate.argument_bank.get(side, [])) for side in ("affirmative", "negative")}
+    bank = build_argument_bank_from_sources(debate.topic, sources)
+    await apply_ai_argument_titles(debate.topic, bank, debate_id=debate.id)
+    add_argument_items(debate, "affirmative", bank["affirmative"])
+    add_argument_items(debate, "negative", bank["negative"])
+    return {side: len(debate.argument_bank.get(side, [])) - before[side] for side in ("affirmative", "negative")}
+
+
+def add_sources_to_argument_bank_for_side(
+    debate: DebateState,
+    side: str,
+    sources: list[Source],
+    *,
+    source_label: str = "AI 检索真实论据入库",
+) -> int:
+    if side not in {"affirmative", "negative"}:
+        return 0
+    before = len(debate.argument_bank.get(side, []))
+    bank = build_argument_bank_from_sources(
+        debate.topic,
+        sources,
+        target_side=side,
+        source_label=source_label,
+    )
+    add_argument_items(debate, side, bank[side])
+    return len(debate.argument_bank.get(side, [])) - before
+
+
+async def add_sources_to_argument_bank_for_side_with_ai_titles(
+    debate: DebateState,
+    side: str,
+    sources: list[Source],
+    *,
+    source_label: str = "AI 检索真实论据入库",
+) -> int:
+    if side not in {"affirmative", "negative"}:
+        return 0
+    before = len(debate.argument_bank.get(side, []))
+    bank = build_argument_bank_from_sources(
+        debate.topic,
+        sources,
+        target_side=side,
+        source_label=source_label,
+    )
+    await apply_ai_argument_titles(debate.topic, bank, debate_id=debate.id)
+    add_argument_items(debate, side, bank[side])
+    return len(debate.argument_bank.get(side, [])) - before
 
 
 def _extract_claims_from_message(content: str) -> list[str]:
@@ -312,20 +493,21 @@ def add_message_arguments_to_bank(debate: DebateState, message: DebateMessage) -
     if message.side not in {"affirmative", "negative"}:
         return {"affirmative": 0, "negative": 0}
     before = {side: len(debate.argument_bank.get(side, [])) for side in ("affirmative", "negative")}
+    if is_internal_message(message):
+        return {"affirmative": 0, "negative": 0}
     if message.sources:
         add_sources_to_argument_bank(debate, message.sources)
-    claims = _extract_claims_from_message(message.content)
-    items = [
-        ArgumentBankItem(
-            id=f"{SIDE_PREFIX[message.side]}-{index}",
-            side=message.side,  # type: ignore[arg-type]
-            title=short_argument_title(claim),
-            claim=claim,
-            source=f"AI 发言入库 · {message.speaker_name}",
-        )
-        for index, claim in enumerate(claims, start=1)
-    ]
-    add_argument_items(debate, message.side, items)
+    return {side: len(debate.argument_bank.get(side, [])) - before[side] for side in ("affirmative", "negative")}
+
+
+async def add_message_arguments_to_bank_with_ai_titles(debate: DebateState, message: DebateMessage) -> dict[str, int]:
+    if message.side not in {"affirmative", "negative"}:
+        return {"affirmative": 0, "negative": 0}
+    before = {side: len(debate.argument_bank.get(side, [])) for side in ("affirmative", "negative")}
+    if is_internal_message(message):
+        return {"affirmative": 0, "negative": 0}
+    if message.sources:
+        await add_sources_to_argument_bank_with_ai_titles(debate, message.sources)
     return {side: len(debate.argument_bank.get(side, [])) - before[side] for side in ("affirmative", "negative")}
 
 
@@ -333,8 +515,64 @@ def argument_ids_for_side(debate: DebateState, side: str) -> set[str]:
     return {item.id for item in debate.argument_bank.get(side, [])}
 
 
+def argument_count_for_side(debate: DebateState, side: str) -> int:
+    if side not in {"affirmative", "negative"}:
+        return 0
+    return len(debate.argument_bank.get(side, []))
+
+
+def opening_argument_bank_ready(debate: DebateState) -> bool:
+    return all(
+        argument_count_for_side(debate, side) >= OPENING_ARGUMENT_TARGET_PER_SIDE
+        for side in ("affirmative", "negative")
+    )
+
+
 def referenced_argument_ids(text: str) -> set[str]:
-    return set(re.findall(r"\b(?:AFF|NEG)-\d+\b", text or "", flags=re.IGNORECASE))
+    return {match.upper() for match in re.findall(r"(?<![A-Za-z0-9])(?:AFF|NEG)-\d+(?![A-Za-z0-9])", text or "", flags=re.IGNORECASE)}
+
+
+def primary_argument_id_for_side(debate: DebateState, side: str, position: int = 1) -> str:
+    if side not in {"affirmative", "negative"}:
+        return ""
+    items = [item for item in debate.argument_bank.get(side, []) if item.id]
+    if items:
+        return items[min(max(position - 1, 0), len(items) - 1)].id
+    return f"{SIDE_PREFIX[side]}-{max(position, 1)}"
+
+
+def normalize_argument_citations(text: str, debate: DebateState, side: str, *, position: int = 1) -> str:
+    if not text:
+        return text
+    cleaned = KB_CITATION_PATTERN.sub("", text)
+    if side not in {"affirmative", "negative"}:
+        return cleaned.strip()
+    allowed = argument_ids_for_side(debate, side)
+    ids = referenced_argument_ids(cleaned)
+    if allowed:
+        cleaned = re.sub(
+            r"[\[【]\s*((?:AFF|NEG)-\d+)\s*[\]】]",
+            lambda match: match.group(0) if match.group(1).upper() in allowed else "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"(?<![A-Za-z0-9])(?:AFF|NEG)-\d+(?![A-Za-z0-9])",
+            lambda match: match.group(0).upper() if match.group(0).upper() in allowed else "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        ids = referenced_argument_ids(cleaned)
+    if ids:
+        return re.sub(r"\s{2,}", " ", cleaned).strip()
+    fallback_id = primary_argument_id_for_side(debate, side, position)
+    if not fallback_id:
+        return re.sub(r"\s{2,}", " ", cleaned).strip()
+    stripped = cleaned.rstrip()
+    suffix = f" [{fallback_id}]"
+    if stripped.endswith(("。", "！", "？", ".", "!", "?")):
+        return f"{stripped}{suffix}"
+    return f"{stripped}{suffix}。"
 
 
 def enforce_argument_citations(debate: DebateState, side: str, content: str) -> tuple[bool, str]:

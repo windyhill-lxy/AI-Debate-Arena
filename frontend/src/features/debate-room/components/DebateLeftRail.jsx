@@ -1,19 +1,24 @@
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  BookOpen,
   Brain,
   Clock,
   Eye,
   EyeOff,
   FileUp,
-  Network,
+  Gavel,
+  Lightbulb,
   Settings,
   Sparkles,
   TimerReset,
   Users,
+  X,
 } from "lucide-react";
 import SystemConfigBanner from "../../../components/debate/SystemConfigBanner.jsx";
+import DebateFlowViewer from "../../../components/DebateFlowViewer.jsx";
 import { isHostDesktop } from "../../../utils/visitContext.js";
+import { agentSeatLabel } from "../../../utils/debateDisplay.js";
 import { MODE_LABELS, debaterLabel, resolveAvatar } from "../utils.js";
 import { VISIBILITY_MODES } from "../visibilityModes.js";
 
@@ -57,13 +62,22 @@ export default function DebateLeftRail({
   activeAgent,
   activeTab,
   setActiveTab,
+  rightActiveTab,
+  setRightActiveTab,
+  showStrategyTab = false,
   onRequestLeave,
 }) {
   const navigate = useNavigate();
   const visibleAgents = (debate.agents || []).filter((agent) => agent.side !== "assistant");
 
   const toggleTab = (tab) => {
+    setRightActiveTab?.(null);
     setActiveTab(activeTab === tab ? null : tab);
+  };
+
+  const toggleRightTab = (tab) => {
+    setActiveTab(null);
+    setRightActiveTab?.(rightActiveTab === tab ? null : tab);
   };
 
   const handleLeaveHome = () => {
@@ -88,6 +102,22 @@ export default function DebateLeftRail({
         <button className={`dock-btn ${activeTab === "settings" ? "active" : ""}`} onClick={() => toggleTab("settings")} title="设置">
           <DockLabel icon={<Settings size={18} />} label="系统设置" />
         </button>
+        <DebateFlowViewer variant="dock" />
+        <div className="dock-divider" aria-hidden="true" />
+        <button className={`dock-btn ${rightActiveTab === "turn" ? "active" : ""}`} onClick={() => toggleRightTab("turn")} title="当前回合">
+          <DockLabel icon={<Gavel size={18} />} label="回合" />
+        </button>
+        {showStrategyTab && (
+          <button className={`dock-btn ${rightActiveTab === "strategy" ? "active" : ""}`} onClick={() => toggleRightTab("strategy")} title="AI 策略">
+            <DockLabel icon={<Lightbulb size={18} />} label="策略" />
+          </button>
+        )}
+        <button className={`dock-btn ${rightActiveTab === "team" ? "active" : ""}`} onClick={() => toggleRightTab("team")} title="队内讨论">
+          <DockLabel icon={<Users size={18} />} label="队内讨论" />
+        </button>
+        <button className={`dock-btn ${rightActiveTab === "arguments" ? "active" : ""}`} onClick={() => toggleRightTab("arguments")} title="论据库">
+          <DockLabel icon={<BookOpen size={18} />} label="论据库" />
+        </button>
       </div>
 
       <div className="sidebar-panel-container">
@@ -96,13 +126,22 @@ export default function DebateLeftRail({
             <div className="sidebar-header">
               <div className="brand-mark-row">
                 <div className="brand-mark">
-                  <Network size={20} />
+                  <Settings size={20} />
                 </div>
                 <div>
                   <p className="eyebrow">Agentic Debate</p>
                   <h3>{MODE_LABELS[debate.mode || mode]}</h3>
                 </div>
               </div>
+              <button
+                type="button"
+                className="sidebar-close-btn"
+                onClick={() => setActiveTab(null)}
+                title="关闭"
+                aria-label="关闭面板"
+              >
+                <X size={16} />
+              </button>
             </div>
 
             <div className="sidebar-content">
@@ -116,9 +155,9 @@ export default function DebateLeftRail({
                     <div className="roster-grid">
                       {visibleAgents.map((agent) => (
                         <article key={agent.id} className={`agent-row ${agent.id === activeAgent?.id ? "current" : ""}`}>
-                          <img src={resolveAvatar(agent)} alt={agent.name} />
+                          <img src={resolveAvatar(agent)} alt={agentSeatLabel(agent) || agent.name} />
                           <div>
-                            <strong>{agent.name}</strong>
+                            <strong>{agentSeatLabel(agent) || agent.name}</strong>
                             <span>
                               {debaterLabel(agent)} · {agent.model}
                             </span>

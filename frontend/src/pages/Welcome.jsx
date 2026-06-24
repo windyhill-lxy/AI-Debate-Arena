@@ -31,7 +31,7 @@ export default function Welcome() {
         <Link to="/lobby" className="welcome-card welcome-card--online">
           <Users size={28} />
           <h2>联机对战</h2>
-          <p>局域网、公网或 Radmin LAN。</p>
+          <p>局域网或公网。</p>
         </Link>
         <Link to="/admin" className="welcome-card welcome-card--admin">
           <Server size={28} />

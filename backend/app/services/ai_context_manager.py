@@ -62,12 +62,14 @@ def build_ai_debater_context(
         viewer_side,
         in_internal_phase=in_internal_phase,
     )
-    can_see_opponent_bank = debate.visibility in {"god", "all_visible"} and not in_internal_phase
+    can_see_opponent_bank = agent.side in {"affirmative", "negative"}
     policy_notes: list[str] = []
     if in_internal_phase:
         policy_notes.append("当前为队内准备阶段，不发送对方队内密谈。")
-    if not can_see_opponent_bank:
-        policy_notes.append("当前不发送对方论据库，只发送本方可用论据。")
+    if can_see_opponent_bank:
+        policy_notes.append("论据库属于赛前公开资料，可查看正反双方论据；正式发言只能引用本方论据 ID。")
+    if debate.argument_bank_locked and agent.side in {"affirmative", "negative"}:
+        policy_notes.append("知识性事实、数据、报告和案例必须来自本方论据库，并在发言中引用论据 ID。")
 
     return AIDebaterContext(
         topic=debate.topic,

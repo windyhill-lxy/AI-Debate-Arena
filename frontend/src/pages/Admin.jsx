@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import CopyShareLinkButton from "../components/CopyShareLinkButton.jsx";
+import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
 import {
   Activity,
   ArrowLeft,
@@ -8,7 +9,6 @@ import {
   ExternalLink,
   Pause,
   Play,
-  QrCode,
   RefreshCw,
   RotateCcw,
   Save,
@@ -19,6 +19,7 @@ import RuntimeSettingsPanel from "../components/RuntimeSettingsPanel.jsx";
 import SystemConfigBanner from "../components/debate/SystemConfigBanner.jsx";
 import { useDebateHealth } from "../hooks/useDebateHealth.js";
 import { API_BASE } from "../utils/apiBase.js";
+import { errorDialogPayload, parseHttpErrorBody } from "../utils/httpError.js";
 import "../styles/admin.css";
 
 async function adminFetch(path, options) {
@@ -26,7 +27,7 @@ async function adminFetch(path, options) {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   return response.json();
 }
 
@@ -36,13 +37,14 @@ function StatusPill({ ok, label }) {
 
 const PHASE_LABELS = {
   opening_prep: "立论准备", opening_statement: "开篇立论", argument_review: "论点强度判断",
-  rebuttal: "驳论", rebuttal_review: "驳论有效性", cross_examination: "盘问/质询",
-  segment_summary: "攻辩小结", free_prep: "自由辩论准备", free_debate: "自由辩论",
+  rebuttal: "驳论", rebuttal_review: "驳论有效性", cross_examination: "质辩",
+  segment_summary: "质辩小结", free_prep: "自由辩论准备", free_debate: "自由辩论",
   free_review: "自由辩论复盘", closing_prep: "总结准备", closing: "总结陈词",
   closing_review: "总结质量判断", pre_match: "赛前主持", post_match: "赛后裁决",
 };
 
 function PromptEditor() {
+  const { reportError } = useErrorDialog();
   const [phases, setPhases] = useState([]);
   const [selectedPhase, setSelectedPhase] = useState("free_debate");
   const [hintText, setHintText] = useState("");
@@ -62,8 +64,9 @@ function PromptEditor() {
       }
     } catch (e) {
       setMsg(`加载失败: ${e.message}`);
+      reportError(errorDialogPayload(e, "加载提示词失败", "Admin.prompts.load"));
     }
-  }, [selectedPhase]);
+  }, [reportError, selectedPhase]);
 
   useEffect(() => { loadPrompts(); }, [loadPrompts]);
 
@@ -92,7 +95,10 @@ function PromptEditor() {
       window.localStorage.removeItem(`promptDraft_${selectedPhase}`);
       setMsg("已保存"); setIsCustom(true);
       await loadPrompts();
-    } catch (e) { setMsg(`保存失败: ${e.message}`); }
+    } catch (e) {
+      setMsg(`保存失败: ${e.message}`);
+      reportError(errorDialogPayload(e, "保存提示词失败", "Admin.prompts.save"));
+    }
     setSaving(false);
   }
 
@@ -103,7 +109,10 @@ function PromptEditor() {
       window.localStorage.removeItem(`promptDraft_${selectedPhase}`);
       setMsg("已重置为默认"); setIsCustom(false);
       await loadPrompts();
-    } catch (e) { setMsg(`重置失败: ${e.message}`); }
+    } catch (e) {
+      setMsg(`重置失败: ${e.message}`);
+      reportError(errorDialogPayload(e, "重置提示词失败", "Admin.prompts.reset"));
+    }
   }
 
   return (
@@ -154,52 +163,6 @@ function PromptEditor() {
   );
 }
 
-function QrCodeCard() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-
-  async function load() {
-    setLoading(true); setErr("");
-    try {
-      const port = window.location.port || "5173";
-      const res = await adminFetch(`/api/admin/qrcode?frontend_port=${port}`);
-      setData(res);
-    } catch (e) {
-      setErr(e.message);
-    }
-    setLoading(false);
-  }
-
-  return (
-    <section className="admin-panel" style={{ marginTop: 24 }}>
-      <h2><QrCode size={18} /> 手机扫码访问（局域网）</h2>
-      <p className="admin-lead" style={{ fontSize: 13, marginBottom: 12 }}>
-        在同一局域网内，用手机扫描二维码即可访问辩论系统。
-      </p>
-      {!data && !loading && (
-        <button type="button" className="admin-btn" onClick={load}>生成二维码</button>
-      )}
-      {loading && <p style={{ fontSize: 13 }}>生成中…</p>}
-      {err && <p style={{ fontSize: 13, color: "#c00" }}>{err}</p>}
-      {data && (
-        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
-          <div className="admin-qr-card">
-            <img src={`data:image/png;base64,${data.qrcode_b64}`} alt="QR码" />
-            <p>扫码访问局域网辩论系统</p>
-            <a href={data.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#334a8a" }}>{data.url}</a>
-          </div>
-          <div style={{ fontSize: 13, color: "#6b5a48", marginTop: 8 }}>
-            <p>局域网 IP：<code>{data.lan_ip}</code></p>
-            <p>确保设备与本机在同一 WiFi 网络下。</p>
-            <button type="button" className="admin-btn secondary" style={{ marginTop: 8 }} onClick={load}>刷新二维码</button>
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
 function UsageStats() {
   const [logs, setLogs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -240,6 +203,7 @@ function UsageStats() {
 }
 
 export default function Admin() {
+  const { reportError } = useErrorDialog();
   const { health, error: healthError } = useDebateHealth();
   const [overview, setOverview] = useState(null);
   const [items, setItems] = useState([]);
@@ -264,10 +228,11 @@ export default function Admin() {
       }
     } catch (e) {
       setActionMsg(`加载失败：${e.message}`);
+      reportError(errorDialogPayload(e, "加载管理数据失败", "Admin.load"));
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, [reportError, selectedId]);
 
   useEffect(() => {
     load();
@@ -280,6 +245,7 @@ export default function Admin() {
       setDetail(d);
     } catch (e) {
       setActionMsg(`详情加载失败：${e.message}`);
+      reportError(errorDialogPayload(e, "加载房间详情失败", "Admin.detail"));
     }
   };
 
@@ -291,6 +257,7 @@ export default function Admin() {
       if (selectedId === id) await selectDebate(id);
     } catch (e) {
       setActionMsg(`操作失败：${e.message}`);
+      reportError(errorDialogPayload(e, "管理操作失败", `Admin.${action}`));
     }
   };
 
@@ -463,7 +430,6 @@ export default function Admin() {
       </div>
 
       <PromptEditor />
-      <QrCodeCard />
       <UsageStats />
     </div>
   );

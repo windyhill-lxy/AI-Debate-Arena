@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import {
+  debaterPositionLabel,
   buildClientHistoryMarkdown,
   downloadTextFile,
   isPublicStageMessage,
@@ -10,19 +11,21 @@ import {
 import { useAudioQueue } from "../../../hooks/useAudioQueue.js";
 import { useDebateHealth } from "../../../hooks/useDebateHealth.js";
 import { useTurnTimer } from "../../../hooks/useTurnTimer.js";
+import { useErrorDialog } from "../../../components/ErrorDialogProvider.jsx";
+import { errorDialogPayload, parseHttpErrorBody } from "../../../utils/httpError.js";
 import { API_BASE, SPEECH_FONT_SIZES, SPEECH_FONT_STORAGE_KEY } from "../constants.js";
 import { debateRequest } from "../api.js";
 import { createLocalDebate } from "../localDebate.js";
 import { encodeChunksAsWav } from "../speechRecorder.js";
 import {
   getSpeechInputState,
+  formatPipelineHint,
   localDemoMarkdown,
   needsUserTurn,
   participantSpeakerId,
   phaseName,
   userSideForMode,
   userSpeakerId,
-  workflowStage,
 } from "../utils.js";
 import { useDebateRoomSocket } from "./useDebateRoomSocket.js";
 import { buildViewerQuery } from "../visibilityModes.js";
@@ -43,13 +46,31 @@ function isDebateSnapshotStale(prev, next) {
   return false;
 }
 
+function mergeArgumentItems(currentItems = [], incomingItems = []) {
+  const byId = new Map();
+  for (const item of currentItems || []) {
+    if (item?.id) byId.set(item.id, item);
+  }
+  for (const item of incomingItems || []) {
+    if (item?.id) byId.set(item.id, { ...(byId.get(item.id) || {}), ...item });
+  }
+  return Array.from(byId.values());
+}
+
+function mergeArgumentBank(current = {}, incoming = {}) {
+  return {
+    affirmative: mergeArgumentItems(current?.affirmative, incoming?.affirmative),
+    negative: mergeArgumentItems(current?.negative, incoming?.negative),
+  };
+}
+
 async function streamSseJson(path, body, onEvent) {
   const response = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
   if (!response.body) throw new Error("stream unavailable");
 
   const reader = response.body.getReader();
@@ -82,6 +103,7 @@ export function useDebateRoom() {
   const location = useLocation();
   const init = location.state || {};
   const isLocal = init.local || routeId === "demo";
+  const { reportError } = useErrorDialog();
 
   const [debate, setDebate] = useState(() => init.debate || createLocalDebate(init.topic, init.mode || "ai_autonomous"));
   const mode = debate.mode || init.mode || "ai_autonomous";
@@ -144,6 +166,7 @@ export function useDebateRoom() {
     participant && (participant.side === "affirmative" || participant.side === "negative") && participant.position;
   const userInputEnabled = mode === "online_match" ? Boolean(isOnlineDebater) : mode !== "ai_autonomous";
   const userSide = mode === "online_match" ? participant?.side || null : userSideForMode(mode);
+  const userPosition = mode === "online_match" ? participant?.position || 1 : debate.user_position || participant?.position || 1;
 
   const clearTtsTimeout = useCallback(() => {
     if (ttsTimeoutRef.current) {
@@ -232,7 +255,11 @@ export function useDebateRoom() {
       }
       setDebate((prev) => {
         if (isDebateSnapshotStale(prev, next)) return prev;
-        return { ...next, messages };
+        return {
+          ...next,
+          messages,
+          argument_bank: mergeArgumentBank(prev?.argument_bank, next.argument_bank),
+        };
       });
       if (clearStreaming) {
         setStreaming((prev) => {
@@ -262,6 +289,15 @@ export function useDebateRoom() {
     [userInputEnabled],
   );
 
+  const applyArgumentBankUpdate = useCallback((argumentBank) => {
+    if (!argumentBank) return;
+    setDebate((prev) => ({
+      ...prev,
+      argument_bank: mergeArgumentBank(prev.argument_bank, argumentBank),
+      argument_bank_locked: true,
+    }));
+  }, []);
+
   const {
     connected: wsConnected,
     reconnecting: wsReconnecting,
@@ -279,6 +315,7 @@ export function useDebateRoom() {
     participant,
     visibility,
     applyDebate,
+    applyArgumentBankUpdate,
     setStatus,
     setStreaming,
     setPipelineHint,
@@ -290,6 +327,7 @@ export function useDebateRoom() {
     enqueueAudio,
     ttsEnabledRef,
     streamStaleRef,
+    reportError,
   });
 
   const speechInputState = useMemo(
@@ -353,30 +391,20 @@ export function useDebateRoom() {
   const speakingNow = useMemo(() => {
     if (streaming) {
       return {
-        name: streaming.speaker_name,
+        name: debaterPositionLabel(streaming.speaker_id, debate.agents) || (streaming.side === "judge" ? "裁判" : streaming.speaker_name),
         segment: streaming.segment_label || phaseName(streaming.phase),
         side: streaming.side,
       };
     }
     if (debate.auto_running && activeAgent) {
       return {
-        name: activeAgent.name,
+        name: debaterPositionLabel(activeAgent.id, debate.agents) || activeAgent.name,
         segment: debate.segment_label,
         side: activeAgent.side,
       };
     }
     return null;
   }, [streaming, debate.auto_running, debate.segment_label, activeAgent]);
-
-  const workflowColumns = useMemo(() => {
-    const groups = new Map();
-    for (const node of debate.workflow || []) {
-      const stage = workflowStage(node);
-      if (!groups.has(stage)) groups.set(stage, []);
-      groups.get(stage).push(node);
-    }
-    return Array.from(groups, ([stage, nodes]) => ({ stage, nodes }));
-  }, [debate.workflow]);
 
   const showStreamingPublic =
     streaming &&
@@ -421,7 +449,19 @@ export function useDebateRoom() {
     for (const chunk of chunks) {
       acc += chunk;
       setStreaming((s) => (s ? { ...s, content: acc } : s));
-      if (acc.length >= 40) setPipelineHint(`下一位辩手预热中（已读 ${acc.length} 字）`);
+      if (acc.length >= 40) {
+        setPipelineHint({
+          type: "pipeline_prep",
+          speakerId: agent.id,
+          speakerName: agent.name,
+          side: agent.side,
+          position: agent.position,
+          nodeLabel: debate.segment_label,
+          partialLength: acc.length,
+          sourcesCount: 0,
+          detail: `本地演示正在生成 ${debaterPositionLabel(agent.id, debate.agents) || agent.name} 的发言，已输出 ${acc.length} 字。`,
+        });
+      }
       await new Promise((r) => setTimeout(r, 80));
     }
 
@@ -465,6 +505,23 @@ export function useDebateRoom() {
     localTimer.current = setInterval(localStep, 3500);
     return () => clearInterval(localTimer.current);
   }, [isLocal, awaitingUser, debate.phase, debate.turn_index, localStep]);
+
+  useEffect(() => {
+    if (!isLocal) return undefined;
+    function injectDemoMessage(event) {
+      const message = event.detail;
+      if (!message?.id || !message.content) return;
+      setDebate((current) => {
+        if (current.messages?.some((item) => item.id === message.id)) return current;
+        return {
+          ...current,
+          messages: [...(current.messages || []), message],
+        };
+      });
+    }
+    window.addEventListener("debate-demo-inject-message", injectDemoMessage);
+    return () => window.removeEventListener("debate-demo-inject-message", injectDemoMessage);
+  }, [isLocal]);
 
   useEffect(() => {
     if (!isLocal && routeId && routeId !== "demo") {
@@ -512,17 +569,18 @@ export function useDebateRoom() {
         } else {
           setStatus("AI 回合自动进行中…");
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setHydrating(false);
           setStatus("无法连接后端，请确认服务已启动（默认 http://127.0.0.1:9000）。");
+          reportError(errorDialogPayload(error, "连接后端失败", "DebateRoom.hydrate", "请确认服务已启动"));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isLocal, routeId, applyDebate, participant?.id, userSide, visibility]);
+  }, [isLocal, routeId, applyDebate, participant?.id, reportError, userSide, visibility]);
 
   useEffect(() => {
     if (isLocal || !routeId || routeId === "demo" || hydrating) return undefined;
@@ -537,8 +595,11 @@ export function useDebateRoom() {
         });
         const remote = await debateRequest(`/api/debates/${routeId}${query}`);
         if (!cancelled) applyDebate(remote, { clearStreaming: false });
-      } catch {
-        /* ignore transient poll errors */
+      } catch (error) {
+        reportError(errorDialogPayload(error, "同步房间状态失败", "DebateRoom.poll", "正在重试同步房间状态"), {
+          dedupeKey: `debate-room-poll:${routeId}`,
+          throttleMs: 15000,
+        });
       }
     }
 
@@ -547,7 +608,7 @@ export function useDebateRoom() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [isLocal, routeId, hydrating, applyDebate, userSide, participant?.id, visibility]);
+  }, [isLocal, routeId, hydrating, applyDebate, reportError, userSide, participant?.id, visibility]);
 
   useEffect(() => {
     if (isLocal || mode === "online_match" || !userInputEnabled || !routeId || routeId === "demo") return undefined;
@@ -568,8 +629,9 @@ export function useDebateRoom() {
       setStatus("已请求继续自动推进…");
     } catch (err) {
       setStatus(`无法恢复推进：${err.message || "请检查后端"}`);
+      reportError(errorDialogPayload(err, "恢复自动推进失败", "DebateRoom.resume", "请检查后端"));
     }
-  }, [isLocal, debate.id]);
+  }, [isLocal, debate.id, reportError]);
 
   const sendMessage = useCallback(async () => {
     if (!draft.trim() || !userInputEnabled || messageSending) return;
@@ -611,6 +673,7 @@ export function useDebateRoom() {
     } catch (e) {
       if (!isLocal) {
         setStatus(`提交失败：${e.message || "请确认是否轮到您的席位发言"}`);
+        reportError(errorDialogPayload(e, "提交发言失败", "DebateRoom.sendMessage", "请确认是否轮到您的席位发言"));
         return;
       }
       const next = structuredClone(debate);
@@ -674,7 +737,7 @@ export function useDebateRoom() {
         method: "POST",
         body: form,
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
       const data = await response.json();
       const text = (data.text || "").trim();
       if (!text) throw new Error("未识别到文字");
@@ -682,8 +745,9 @@ export function useDebateRoom() {
       setSpeechStatus(`已识别 ${text.length} 字，可继续修改后提交。`);
     } catch (e) {
       setSpeechStatus(`语音识别失败：${e.message || "请检查麦克风权限与阿里云配置"}`);
+      reportError(errorDialogPayload(e, "语音识别失败", "DebateRoom.speechToText", "请检查麦克风权限与阿里云配置"));
     }
-  }, [cleanupSpeechRecorder, debate.id, isLocal]);
+  }, [cleanupSpeechRecorder, debate.id, isLocal, reportError]);
 
   const startSpeechInput = useCallback(async () => {
     if (!awaitingUser || !userInputEnabled) return;
@@ -768,9 +832,10 @@ export function useDebateRoom() {
         setMaterialDraft("");
       } catch (e) {
         setMaterialStatus(`上传失败：${e.message}`);
+        reportError(errorDialogPayload(e, "资料上传失败", "DebateRoom.uploadMaterials"));
       }
     },
-    [isLocal, debate.id, materialDraft, materialTitle],
+    [isLocal, debate.id, materialDraft, materialTitle, reportError],
   );
 
   const onMaterialFile = useCallback(
@@ -787,15 +852,16 @@ export function useDebateRoom() {
           method: "POST",
           body: form,
         });
-        if (!response.ok) throw new Error(await response.text());
+        if (!response.ok) throw parseHttpErrorBody(await response.text(), response);
         const data = await response.json();
         setMaterialStatus(`文件已入库：${data.chunks} 个片段`);
       } catch (e) {
         setMaterialStatus(`文件上传失败：${e.message}`);
+        reportError(errorDialogPayload(e, "资料文件上传失败", "DebateRoom.uploadMaterialFile"));
       }
       event.target.value = "";
     },
-    [isLocal, debate.id],
+    [isLocal, debate.id, reportError],
   );
 
   const askAssist = useCallback(async () => {
@@ -803,7 +869,7 @@ export function useDebateRoom() {
     setAssistLoading(true);
     let fullText = "";
     try {
-      await streamSseJson(`/api/debates/${debate.id}/assist/stream`, { side: userSide, draft }, (event) => {
+      await streamSseJson(`/api/debates/${debate.id}/assist/stream`, { side: userSide, position: userPosition, draft }, (event) => {
         if (event.type === "chunk") {
           fullText = event.full_text || `${fullText}${event.text || ""}`;
           setAssist((prev) => ({
@@ -821,9 +887,15 @@ export function useDebateRoom() {
         }
         if (event.type === "error") {
           setStatus(`建议流式生成失败：${event.message || "请检查后端"}`);
+          reportError({
+            title: "建议生成失败",
+            message: event.message || "请检查后端",
+            source: "DebateRoom.assist.stream",
+          });
         }
       });
-    } catch {
+    } catch (e) {
+      reportError(errorDialogPayload(e, "建议生成失败", "DebateRoom.assist", "请检查后端"));
       setAssist({
         suggestion: "用 Markdown 列出三点：承认对方最强点 → 指出证据缺口 → 回到本方标准。",
         possible_lines: ["**请问**对方的数据样本是否覆盖全体青少年？"],
@@ -832,7 +904,7 @@ export function useDebateRoom() {
     } finally {
       setAssistLoading(false);
     }
-  }, [userInputEnabled, debate.id, userSide, draft]);
+  }, [userInputEnabled, debate.id, userSide, userPosition, draft, reportError]);
 
   const askDraft = useCallback(async () => {
     if (!userInputEnabled || !awaitingUser) return;
@@ -840,7 +912,7 @@ export function useDebateRoom() {
     setShowDraftPreview(true);
     let fullText = "";
     try {
-      await streamSseJson(`/api/debates/${debate.id}/assist/draft/stream`, { side: userSide, draft }, (event) => {
+      await streamSseJson(`/api/debates/${debate.id}/assist/draft/stream`, { side: userSide, position: userPosition, draft }, (event) => {
         if (event.type === "chunk") {
           fullText = event.full_text || `${fullText}${event.text || ""}`;
           setDraft(fullText);
@@ -853,14 +925,20 @@ export function useDebateRoom() {
         }
         if (event.type === "error") {
           setStatus(`代拟草稿流式生成失败：${event.message || "请检查后端"}`);
+          reportError({
+            title: "代拟草稿失败",
+            message: event.message || "请检查后端",
+            source: "DebateRoom.draft.stream",
+          });
         }
       });
     } catch (e) {
       setStatus(`代拟草稿失败：${e.message}`);
+      reportError(errorDialogPayload(e, "代拟草稿失败", "DebateRoom.draft", "请检查后端"));
     } finally {
       setDraftLoading(false);
     }
-  }, [userInputEnabled, awaitingUser, debate.id, userSide, draft]);
+  }, [userInputEnabled, awaitingUser, debate.id, userSide, userPosition, draft, reportError]);
 
   const stopTtsSession = useCallback(async () => {
     ttsEnabledRef.current = false;
@@ -874,9 +952,10 @@ export function useDebateRoom() {
         await debateRequest(`/api/debates/${debate.id}/tts/stop`, { method: "POST" });
       } catch (e) {
         setTtsStatus(`停止语音失败：${e.message || "请稍后重试"}`);
+        reportError(errorDialogPayload(e, "停止语音失败", "DebateRoom.stopTts", "请稍后重试"));
       }
     }
-  }, [clearAudioQueue, clearTtsTimeout, debate.id, isLocal, setAudioDisabled]);
+  }, [clearAudioQueue, clearTtsTimeout, debate.id, isLocal, reportError, setAudioDisabled]);
 
   useEffect(() => {
     function onKeyDown(event) {
@@ -904,9 +983,11 @@ export function useDebateRoom() {
   return {
     mode,
     isLocal,
+    initialCameraEnabled: init.cameraEnabled,
     debate,
     streaming,
     pipelineHint,
+    pipelineHintText: formatPipelineHint(pipelineHint),
     draft,
     setDraft,
     participant,
@@ -943,7 +1024,6 @@ export function useDebateRoom() {
     aiStrategyNotes,
     processTimeline,
     speakingNow,
-    workflowColumns,
     showStreamingPublic,
     hydrating,
     wsConnected,

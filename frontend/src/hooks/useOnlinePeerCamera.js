@@ -3,22 +3,38 @@ import { useLocalCamera } from "./useLocalCamera.js";
 
 const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 
+function shouldAcceptOfferCollision(selfId, remoteId) {
+  return String(selfId || "") > String(remoteId || "");
+}
+
 export function useOnlinePeerCamera({
   debateId,
   participantId,
   enabled = true,
+  initialLocalOn = true,
   sendSignal,
   subscribeWebRtcSignal,
 }) {
-  const [localOn, setLocalOn] = useState(true);
+  const [localOn, setLocalOn] = useState(() => Boolean(initialLocalOn));
   const [remoteStreams, setRemoteStreams] = useState([]);
-  const localCamera = useLocalCamera({ enabled: enabled && localOn });
+  const {
+    stream: localStream,
+    error: localError,
+    hasDevice,
+    startStream,
+    stopStream,
+  } = useLocalCamera({ enabled: enabled && localOn, popupOnError: true });
   const peersRef = useRef(new Map());
+  const signalQueuesRef = useRef(new Map());
   const selfIdRef = useRef(participantId || "");
 
   useEffect(() => {
     selfIdRef.current = participantId || "";
   }, [participantId]);
+
+  useEffect(() => {
+    if (enabled && !initialLocalOn) setLocalOn(false);
+  }, [enabled, initialLocalOn]);
 
   const cleanupPeer = useCallback((remoteId) => {
     const pc = peersRef.current.get(remoteId);
@@ -26,6 +42,7 @@ export function useOnlinePeerCamera({
       pc.close();
       peersRef.current.delete(remoteId);
     }
+    signalQueuesRef.current.delete(remoteId);
     setRemoteStreams((prev) => prev.filter((item) => item.id !== remoteId));
   }, []);
 
@@ -49,8 +66,8 @@ export function useOnlinePeerCamera({
 
   const ensureLocalStream = useCallback(async () => {
     if (!localOn) return null;
-    return localCamera.startStream();
-  }, [localCamera, localOn]);
+    return startStream();
+  }, [localOn, startStream]);
 
   const createOffer = useCallback(
     async (remoteId) => {
@@ -89,37 +106,48 @@ export function useOnlinePeerCamera({
     [addRemoteStream, cleanupPeer, debateId, enabled, emitSignal, ensureLocalStream],
   );
 
+  const createPeer = useCallback(
+    (remoteId, stream) => {
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      peersRef.current.set(remoteId, pc);
+      stream?.getTracks().forEach((track) => pc.addTrack(track, stream));
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          emitSignal({
+            signal_type: "ice",
+            to_participant_id: remoteId,
+            payload: event.candidate,
+          });
+        }
+      };
+      pc.ontrack = (event) => {
+        const [remote] = event.streams;
+        if (remote) addRemoteStream(remoteId, remote);
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+          cleanupPeer(remoteId);
+        }
+      };
+      return pc;
+    },
+    [addRemoteStream, cleanupPeer, emitSignal],
+  );
+
   const handleSignal = useCallback(
     async (data) => {
       const remoteId = data.from_participant_id;
       if (!remoteId || remoteId === selfIdRef.current) return;
       const stream = await ensureLocalStream();
-      let pc = peersRef.current.get(remoteId);
-      if (!pc) {
-        pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-        peersRef.current.set(remoteId, pc);
-        stream?.getTracks().forEach((track) => pc.addTrack(track, stream));
-        pc.onicecandidate = (event) => {
-          if (event.candidate) {
-            emitSignal({
-              signal_type: "ice",
-              to_participant_id: remoteId,
-              payload: event.candidate,
-            });
-          }
-        };
-        pc.ontrack = (event) => {
-          const [remote] = event.streams;
-          if (remote) addRemoteStream(remoteId, remote);
-        };
-        pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-            cleanupPeer(remoteId);
-          }
-        };
-      }
+      const pc = peersRef.current.get(remoteId) || createPeer(remoteId, stream);
       if (data.signal_type === "offer") {
+        if (data.payload?.type !== "offer") return;
+        if (pc.signalingState !== "stable") {
+          if (pc.signalingState !== "have-local-offer" || !shouldAcceptOfferCollision(selfIdRef.current, remoteId)) return;
+          await pc.setLocalDescription({ type: "rollback" });
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+        if (pc.signalingState !== "have-remote-offer") return;
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         emitSignal({
@@ -128,6 +156,8 @@ export function useOnlinePeerCamera({
           payload: answer,
         });
       } else if (data.signal_type === "answer") {
+        if (data.payload?.type !== "answer") return;
+        if (pc.signalingState !== "have-local-offer") return;
         await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
       } else if (data.signal_type === "ice" && data.payload) {
         try {
@@ -137,23 +167,42 @@ export function useOnlinePeerCamera({
         }
       }
     },
-    [addRemoteStream, cleanupPeer, emitSignal, ensureLocalStream],
+    [createPeer, emitSignal, ensureLocalStream],
+  );
+
+  const enqueueSignal = useCallback(
+    (data) => {
+      const remoteId = data?.from_participant_id;
+      if (!remoteId || remoteId === selfIdRef.current) return;
+
+      const current = signalQueuesRef.current.get(remoteId) || Promise.resolve();
+      const next = current
+        .catch(() => {})
+        .then(() => handleSignal(data))
+        .catch(() => {
+          /* ignore stale or out-of-order WebRTC signals */
+        });
+      signalQueuesRef.current.set(remoteId, next);
+    },
+    [handleSignal],
   );
 
   useEffect(() => {
     if (!enabled || !subscribeWebRtcSignal) return undefined;
     return subscribeWebRtcSignal((data) => {
       if (data?.type === "webrtc_signal" || data?.signal_type) {
-        handleSignal(data);
+        enqueueSignal(data);
       }
     });
-  }, [enabled, handleSignal, subscribeWebRtcSignal]);
+  }, [enabled, enqueueSignal, subscribeWebRtcSignal]);
 
   const syncPeers = useCallback(
     (participantIds) => {
       const ids = (participantIds || []).filter((id) => id && id !== selfIdRef.current);
       ids.forEach((id) => {
-        createOffer(id);
+        createOffer(id).catch(() => {
+          /* ignore transient WebRTC setup failures */
+        });
       });
       for (const remoteId of peersRef.current.keys()) {
         if (!ids.includes(remoteId)) cleanupPeer(remoteId);
@@ -163,29 +212,29 @@ export function useOnlinePeerCamera({
   );
 
   useEffect(() => {
-    if (!localOn || localCamera.error) {
-      if (!localOn) localCamera.stopStream();
+    if (!localOn || localError) {
+      if (!localOn) stopStream();
       for (const remoteId of [...peersRef.current.keys()]) cleanupPeer(remoteId);
     }
-  }, [cleanupPeer, localCamera, localCamera.error, localOn]);
+  }, [cleanupPeer, localError, localOn, stopStream]);
 
   useEffect(
     () => () => {
-      localCamera.stopStream();
+      stopStream();
       for (const remoteId of [...peersRef.current.keys()]) cleanupPeer(remoteId);
     },
-    [cleanupPeer, localCamera],
+    [cleanupPeer, stopStream],
   );
 
   const toggleLocal = useCallback(() => setLocalOn((on) => !on), []);
 
   return {
-    localStream: localCamera.stream,
+    localStream,
     localOn,
     toggleLocal,
     remoteStreams,
-    error: localCamera.error,
-    hasDevice: localCamera.hasDevice,
+    error: localError,
+    hasDevice,
     syncPeers,
   };
 }

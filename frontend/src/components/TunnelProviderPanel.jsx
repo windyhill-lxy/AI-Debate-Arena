@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound, Loader2, Save } from "lucide-react";
+import { useErrorDialog } from "./ErrorDialogProvider.jsx";
 import { API_BASE } from "../utils/apiBase.js";
+import { errorDialogPayload, parseHttpErrorBody } from "../utils/httpError.js";
 
 const TOKEN_STORAGE_KEY = "debate-ngrok-token-draft";
 
 export default function TunnelProviderPanel({ onChanged }) {
+  const { reportError } = useErrorDialog();
   const [providers, setProviders] = useState(null);
   const [provider, setProvider] = useState("auto");
   const [token, setToken] = useState(() => {
@@ -39,7 +42,7 @@ export default function TunnelProviderPanel({ onChanged }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: next }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw parseHttpErrorBody(await res.text(), res);
       const data = await res.json();
       setProviders(data);
       setProvider(data.current || next);
@@ -47,6 +50,7 @@ export default function TunnelProviderPanel({ onChanged }) {
       onChanged?.();
     } catch (error) {
       setHint(error.message || "保存失败");
+      reportError(errorDialogPayload(error, "保存隧道方式失败", "TunnelProviderPanel.saveProvider"));
     } finally {
       setBusy(false);
     }
@@ -62,7 +66,7 @@ export default function TunnelProviderPanel({ onChanged }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ authtoken: value }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw parseHttpErrorBody(await res.text(), res);
       const data = await res.json();
       setProviders(data);
       if (value) window.localStorage.setItem(TOKEN_STORAGE_KEY, value);
@@ -71,6 +75,7 @@ export default function TunnelProviderPanel({ onChanged }) {
       onChanged?.();
     } catch (error) {
       setHint(error.message || "保存 Token 失败");
+      reportError(errorDialogPayload(error, "保存 ngrok Token 失败", "TunnelProviderPanel.saveToken"));
     } finally {
       setBusy(false);
     }

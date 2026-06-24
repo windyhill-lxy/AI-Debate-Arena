@@ -1,5 +1,6 @@
 import { Volume2 } from "lucide-react";
 import CitationMarkdownBody from "../../../components/CitationMarkdownBody.jsx";
+import { displaySpeakerName } from "../../../utils/debateDisplay.js";
 import { getAgent, phaseName, resolveAvatar, sideName } from "../utils.js";
 
 function FactCheckBadge({ message }) {
@@ -39,23 +40,24 @@ function FactCheckBadge({ message }) {
 export default function PublicMessage({ message, debate, audioByMessage, playMessageAudio, sourceMap, onCitationSelect, ownSpeakerId }) {
   const agent = getAgent(debate, message.speaker_id);
   const isOwn = ownSpeakerId && message.speaker_id === ownSpeakerId;
+  const speakerLabel = displaySpeakerName(message, debate);
   const audio = audioByMessage[message.id];
   const audioUrls = audio?.audio_urls?.length ? audio.audio_urls : audio?.audio_url ? [audio.audio_url] : [];
   const replayAudio = () => {
     if (!audioUrls.length) return;
     playMessageAudio?.(audioUrls, {
       messageId: message.id,
-      speakerName: message.speaker_name,
+      speakerName: speakerLabel,
       text: message.content,
       voice: audio?.voice,
     });
   };
   return (
     <article className={`message ${message.side} ${isOwn ? "message--own" : ""}`}>
-      <img className="message-avatar" src={resolveAvatar(agent)} alt={message.speaker_name} />
+      <img className="message-avatar" src={resolveAvatar(agent)} alt={speakerLabel} />
       <div className="message-body">
         <div className="message-head">
-          <strong>{message.speaker_name}</strong>
+          <strong>{speakerLabel}</strong>
           <span>
             {sideName(message.side)} · {message.segment_label || phaseName(message.phase)}
           </span>
@@ -86,12 +88,13 @@ export default function PublicMessage({ message, debate, audioByMessage, playMes
 export function StreamingPublicMessage({ streaming, debate, sourceMap, onCitationSelect, ownSpeakerId }) {
   const agent = getAgent(debate, streaming.speaker_id);
   const isOwn = ownSpeakerId && streaming.speaker_id === ownSpeakerId;
+  const speakerLabel = displaySpeakerName(streaming, debate);
   return (
     <article className={`message ${streaming.side} ${isOwn ? "message--own" : ""} streaming-message`}>
-      <img className="message-avatar" src={resolveAvatar(agent)} alt={streaming.speaker_name} />
+      <img className="message-avatar" src={resolveAvatar(agent)} alt={speakerLabel} />
       <div className="message-body">
         <div className="message-head">
-          <strong>{streaming.speaker_name}</strong>
+          <strong>{speakerLabel}</strong>
           <span>{sideName(streaming.side)} · 流式输出中</span>
         </div>
         <CitationMarkdownBody

@@ -14,15 +14,63 @@ except Exception:
 
 from app.models import DebateMessage, DebateState, Source, build_schedule_status
 from app.services.ai_context_manager import build_ai_debater_context, format_argument_bank
-from app.services.argument_bank import add_message_arguments_to_bank, add_sources_to_argument_bank
+from app.services.argument_bank import (
+    add_message_arguments_to_bank_with_ai_titles,
+    add_sources_to_argument_bank,
+    argument_count_for_side,
+    argument_ids_for_side,
+    opening_argument_bank_ready,
+    referenced_argument_ids,
+)
 from app.services.debate_mode import peek_next_speaker_id
 from app.services.debate_schedule import advance_schedule, segment_prompt_hint
-from app.services.llm import DeepSeekError, chat_completion, chat_completion_stream, resolve_model, strip_model_reasoning
+from app.services.llm import (
+    DeepSeekError,
+    chat_completion,
+    chat_completion_stream,
+    resolve_model,
+    strip_model_reasoning,
+)
 from app.services.message_visibility import latest_any_visible_message
 from app.services.judge_report import generate_final_report
+from app.services.opening_evidence import current_segment_id, ensure_opening_argument_bank, needs_opening_evidence
 from app.services.rag import retrieve_sources
+from app.services.team_discussion import (
+    TeamDiscussionContext,
+    argument_ids_for_prompt,
+    build_team_discussion_user_content,
+    generate_team_discussion_draft,
+    team_discussion_speakers,
+)
 
 EventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
+PUBLIC_DEBATE_PHASES = {
+    "opening_statement",
+    "rebuttal",
+    "cross_examination",
+    "segment_summary",
+    "free_debate",
+    "closing",
+}
+RAG_SEGMENT_IDS = {
+    "aff_opening_rag",
+    "neg_opening_rag",
+    "neg_rebuttal_rag",
+    "aff_rebuttal_rag",
+    "aff_summary_fact",
+    "neg_summary_fact",
+    "free_predict_rag",
+    "free_case_rag",
+    "free_realtime_rag",
+    "closing_knowledge_rag",
+    "closing_neg_rag",
+    "closing_aff_rag",
+    "judge_criteria_rag",
+}
+
+
+def _is_public_debate_phase(phase: str) -> bool:
+    return phase in PUBLIC_DEBATE_PHASES
 
 
 def _is_internal_team_phase(phase: str) -> bool:
@@ -35,35 +83,6 @@ def _is_task_assign_segment(segment_label: str) -> bool:
 
 def _is_team_discussion_segment(debate: DebateState) -> bool:
     return _is_internal_team_phase(debate.phase) and "队内讨论" in (debate.segment_label or "")
-
-
-def _positions_spoken_in_segment(debate: DebateState, side: str) -> set[int]:
-    from app.services.debate_mode import debate_user_position, debate_user_side
-
-    positions: set[int] = set()
-    label = debate.segment_label or ""
-    for message in debate.messages:
-        if message.side != side or message.segment_label != label:
-            continue
-        agent = next((a for a in debate.agents if a.id == message.speaker_id), None)
-        if agent:
-            positions.add(agent.position)
-        elif message.speech_flag is not None and debate_user_side(debate) == side:
-            positions.add(debate_user_position(debate))
-    return positions
-
-
-def _first_debater_already_assigned(debate: DebateState, side: str) -> bool:
-    """一辩任务分配已完成后，队内讨论不再重复生成一辩发言。"""
-    for message in reversed(debate.messages):
-        if message.side != side:
-            continue
-        label = message.segment_label or ""
-        if "任务分配" in label:
-            return True
-        if "队内讨论" in label:
-            return False
-    return False
 
 
 def _has_prior_judge_pre_match(debate: DebateState) -> bool:
@@ -112,6 +131,35 @@ def _looks_incomplete(text: str) -> bool:
         ";",
     )
     return any(stripped.endswith(suffix) for suffix in dangling_suffixes) or len(stripped) < 24
+
+
+def _has_substantive_completion(text: str, debate: DebateState) -> bool:
+    stripped = re.sub(r"\s+", "", strip_model_reasoning(text or ""))
+    if not stripped:
+        return False
+    if _looks_incomplete(stripped):
+        return False
+    min_chars = {
+        "cross_examination": 48,
+        "rebuttal": 70,
+        "segment_summary": 70,
+        "opening_statement": 820,
+        "closing": 220,
+    }.get(debate.phase, 24)
+    if len(stripped) < min_chars:
+        return False
+    if debate.phase == "cross_examination":
+        if _cross_examination_mode(debate.segment_label or "") == "question":
+            return stripped.count("请问") >= 1 and len(re.findall(r"[?？]", stripped)) >= 1
+        return bool(re.search(r"第一问|第二问|回应|因此|所以", stripped))
+    return True
+
+
+def _completion_target_chars(debate: DebateState) -> int:
+    return {
+        "opening_statement": 900,
+        "closing": 650,
+    }.get(debate.phase, 0)
 
 
 def _max_tokens_for_phase(phase: str) -> int:
@@ -178,11 +226,35 @@ def _apply_phase_speech_limits(content: str, debate: DebateState) -> str:
 
 def _cross_examination_mode(segment_label: str) -> str:
     label = (segment_label or "").strip()
-    if "回应盘问" in label or "回应质询" in label:
+    if any(token in label for token in ("回应盘问", "回应质询", "回答", "作答")):
         return "respond"
-    if "盘问" in label or "质询" in label:
+    if any(token in label for token in ("盘问", "质询", "提问")) or re.search(r"问[正反]方[一二三四]辩", label):
         return "question"
     return "respond"
+
+
+def _argument_ids_for_prompt(debate: DebateState, side: str) -> str:
+    return argument_ids_for_prompt(debate, side)
+
+
+def _sanitize_content_preserving_argument_ids(content: str, sources: list[Source]) -> str:
+    placeholders: dict[str, str] = {}
+
+    def protect(match: re.Match[str]) -> str:
+        key = f"__ARG_ID_{len(placeholders)}__"
+        placeholders[key] = f"[{match.group(1).upper()}]"
+        return key
+
+    protected = re.sub(r"\[\s*((?:AFF|NEG)-\d+)\s*\]", protect, content or "", flags=re.IGNORECASE)
+    cleaned = sanitize_citations(protected, sources)
+    for key, value in placeholders.items():
+        cleaned = cleaned.replace(key, value)
+    return cleaned
+
+
+def _has_unverified_citations_preserving_argument_ids(content: str, sources: list[Source]) -> bool:
+    without_argument_ids = re.sub(r"\[\s*(?:AFF|NEG)-\d+\s*\]", "", content or "", flags=re.IGNORECASE)
+    return has_unverified_citations(without_argument_ids, sources)
 
 
 class DebateGraph:
@@ -197,6 +269,7 @@ class DebateGraph:
 
         graph = StateGraph(dict)
         graph.add_node("rag_retrieve", self._rag_retrieve)
+        graph.add_node("opening_evidence_retrieve", self._opening_evidence_retrieve)
         graph.add_node("strategy_plan", self._strategy_plan)
         graph.add_node("stance_decision", self._stance_decision)
         graph.add_node("reflection", self._reflection)
@@ -207,7 +280,8 @@ class DebateGraph:
         graph.add_node("turn_router", self._turn_router)
 
         graph.set_entry_point("rag_retrieve")
-        graph.add_edge("rag_retrieve", "strategy_plan")
+        graph.add_edge("rag_retrieve", "opening_evidence_retrieve")
+        graph.add_edge("opening_evidence_retrieve", "strategy_plan")
         graph.add_edge("strategy_plan", "stance_decision")
         graph.add_edge("stance_decision", "reflection")
         graph.add_edge("reflection", "speech_generate")
@@ -262,6 +336,7 @@ class DebateGraph:
         else:
             for step in (
                 self._rag_retrieve,
+                self._opening_evidence_retrieve,
                 self._strategy_plan,
                 self._stance_decision,
                 self._reflection,
@@ -274,12 +349,12 @@ class DebateGraph:
                 state = await step(state)
         return state["debate"]
 
-    def _mark(self, debate: DebateState, node_id: str, detail: str = "") -> None:
+    def _mark(self, debate: DebateState, node_id: str, detail: str = ""):
         if node_id == "reflection":
             phase_node = "reflection_draft_finalize"
         else:
             phase_node = {
-            ("rag_retrieve", "opening_prep"): "rag_opening_args",
+            ("rag_retrieve", "opening_prep"): "opening_evidence_bank",
             ("rag_retrieve", "argument_review"): "rag_retrieve",
             ("rag_retrieve", "rebuttal_review"): "rag_retrieve",
             ("rag_retrieve", "free_prep"): "rag_opponent_predict",
@@ -287,6 +362,7 @@ class DebateGraph:
             ("rag_retrieve", "closing_prep"): "rag_full_knowledge",
             ("rag_retrieve", "closing_review"): "rag_closing_template",
             ("rag_retrieve", "post_match"): "rag_judge_criteria",
+            ("opening_evidence_retrieve", "opening_prep"): "opening_evidence_bank",
             ("strategy_plan", "opening_prep"): "team_opening_discussion",
             ("strategy_plan", "free_prep"): "team_free_discussion",
             ("strategy_plan", "closing_prep"): "team_closing_discussion",
@@ -298,6 +374,7 @@ class DebateGraph:
             ("fact_check", "closing_review"): "closing_quality_check",
             ("fact_check", "post_match"): "winner_decision",
             }.get((node_id, debate.phase), node_id)
+        active_node = None
         for node in debate.workflow:
             if node.status == "running":
                 node.status = "done"
@@ -305,6 +382,27 @@ class DebateGraph:
                 node.status = "running"
                 if detail:
                     node.detail = detail
+                active_node = node
+        return active_node
+
+    def _workflow_progress_payload(self, debate: DebateState, *, agent=None) -> dict[str, Any]:
+        node = next((item for item in debate.workflow if item.status == "running"), None)
+        if agent is None:
+            agent = next((item for item in debate.agents if item.id == debate.active_speaker_id), None)
+        return {
+            "type": "workflow_progress",
+            "node_id": node.id if node else "",
+            "node_label": node.label if node else (debate.segment_label or debate.phase),
+            "node_detail": node.detail if node else "",
+            "segment_label": debate.segment_label,
+            "phase": debate.phase,
+            "speaker_id": agent.id if agent else debate.active_speaker_id,
+            "speaker_name": agent.name if agent else (debate.active_speaker_id or "系统"),
+            "side": agent.side if agent else "",
+            "position": agent.position if agent else 0,
+            "schedule_index": debate.schedule_index,
+            "schedule_total": len(debate.schedule or []),
+        }
 
     def _active_agent(self, debate: DebateState):
         agent = next((agent for agent in debate.agents if agent.id == debate.active_speaker_id), None)
@@ -316,6 +414,22 @@ class DebateGraph:
         debate: DebateState = state["debate"]
         self._mark(debate, "rag_retrieve", "正在检索可引用资料与历史论点。")
         agent = self._active_agent(debate)
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=agent))
+        segment_id = current_segment_id(debate)
+        if (
+            _is_internal_team_phase(debate.phase)
+            and segment_id != "opening_evidence_bank"
+            and segment_id not in RAG_SEGMENT_IDS
+        ):
+            state["sources"] = []
+            return state
+        if (
+            not _is_public_debate_phase(debate.phase)
+            and segment_id not in RAG_SEGMENT_IDS
+            and segment_id != "opening_evidence_bank"
+        ):
+            state["sources"] = []
+            return state
         viewer_side = agent.side if agent.side in {"affirmative", "negative"} else "judge"
         in_internal = _is_internal_team_phase(debate.phase)
         last_visible = latest_any_visible_message(
@@ -324,15 +438,50 @@ class DebateGraph:
             in_internal_phase=in_internal,
         )
         query = (last_visible.content if last_visible else None) or debate.topic
+        if segment_id == "opening_evidence_bank":
+            state["sources"] = []
+            return state
         state["sources"] = retrieve_sources(debate.topic, query, debate_id=debate.id)
-        if state["sources"]:
+        if state["sources"] and _is_public_debate_phase(debate.phase):
             add_sources_to_argument_bank(debate, state["sources"])
+        return state
+
+    async def _opening_evidence_retrieve(self, state: dict) -> dict:
+        debate: DebateState = state["debate"]
+        if not needs_opening_evidence(debate):
+            return state
+        self._mark(debate, "opening_evidence_retrieve", "正在按正反方分别检索真实事实、案例和数据，并写入论据库。")
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
+
+        async def on_progress(detail: str) -> None:
+            self._mark(debate, "opening_evidence_retrieve", detail)
+            await self._emit(
+                state.get("on_event"),
+                self._workflow_progress_payload(debate, agent=self._active_agent(debate)),
+            )
+
+        result = await ensure_opening_argument_bank(
+            debate,
+            on_event=state.get("on_event"),
+            on_progress=on_progress,
+        )
+        state["sources"] = result.sources
+        if not opening_argument_bank_ready(debate):
+            debate.auto_running = False
+            debate.awaiting_user = False
+            state["opening_evidence_blocked"] = True
+            self._mark(debate, "opening_evidence_retrieve", "论据库尚未就绪，暂停在本节点等待后台预搜集完成。")
+            await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         return state
 
     async def _strategy_plan(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
+        if state.get("opening_evidence_blocked"):
+            state["strategy"] = ""
+            return state
         self._mark(debate, "strategy_plan", "快速生成本环节攻防路线。")
         agent = self._active_agent(debate)
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=agent))
         if agent.side == "affirmative":
             side_focus = f"围绕辩题「{debate.topic}」维护正方立场"
         elif agent.side == "negative":
@@ -345,8 +494,8 @@ class DebateGraph:
             "argument_review": "评估刚才发言的强度与证据缺口。",
             "rebuttal": "直接回应上一轮最强论点，不铺陈背景。",
             "rebuttal_review": "判断驳论是否击中对方核心。",
-            "cross_examination": "盘问方连续提问；回应方逐条作答，不得回避。",
-            "segment_summary": "收束战场，列出对方未回答问题。",
+            "cross_examination": "按质辩规则向指定辩手提一个问题，或只回答上一问。",
+            "segment_summary": "三辩收束质辩战场，列出对方未回答问题。",
             "free_prep": "预测对手并安排短句攻防。",
             "free_debate": "只用一句话回应上一点或提出一个攻击点。",
             "free_review": "判断自由辩论是否应当收束。",
@@ -361,7 +510,11 @@ class DebateGraph:
 
     async def _stance_decision(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
+        if state.get("opening_evidence_blocked"):
+            state["stance_action"] = "等待论据库"
+            return state
         self._mark(debate, "stance_decision", "根据 4v4 赛制判断本轮发言任务。")
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         action_by_phase = {
             "pre_match": "主持",
             "opening_prep": "立论准备",
@@ -369,8 +522,8 @@ class DebateGraph:
             "argument_review": "论点强度判断",
             "rebuttal": "驳论",
             "rebuttal_review": "驳论有效性判断",
-            "cross_examination": "盘问/质询",
-            "segment_summary": "小结",
+            "cross_examination": "质辩",
+            "segment_summary": "质辩小结",
             "free_prep": "自由辩论准备",
             "free_debate": "自由辩论",
             "free_review": "自由辩论复盘",
@@ -412,21 +565,29 @@ class DebateGraph:
             length_hint = "自由辩论：只输出 1 句话，直击一个争点，不要分点或换行。"
         elif debate.phase == "opening_statement":
             arg_prefix = "AFF" if agent.side == "affirmative" else "NEG"
+            all_argument_ids = _argument_ids_for_prompt(debate, agent.side)
             length_hint = (
-                "开篇立论：发言总字数不低于900字（约三分钟朗读时长）。"
-                "必须包含三个明确论点，每个论点配一条具体真实论据（非常识性推断）；"
-                f"每条论据必须标注论据 ID：[{arg_prefix}-1]、[{arg_prefix}-2]、[{arg_prefix}-3]；"
+                "开篇立论：发言总字数必须控制在 800 到 1000 个汉字。"
+                "必须包含三个明确论点，每个论点配具体真实论据（非常识性推断）；"
+                f"必须覆盖本方论据库全部条目，至少逐一引用这些论据 ID：{all_argument_ids}；"
+                f"每条论据必须标注本方论据 ID，例如 [{arg_prefix}-1]；"
                 "结构为：概念定义→论点一→论点二→论点三→价值升华收束。"
-                "字数不足900字将视为发言未完成。"
+                "字数少于800字或多于1000字均视为发言不合格。"
             )
             if agent.side == "negative" and getattr(agent, "position", 0) == 1:
                 length_hint += "反方一辩以建立反方立论为主，只允许少量回应正方框架，不得把整篇写成驳论。"
         elif debate.phase == "cross_examination":
             cross_mode = _cross_examination_mode(debate.segment_label or "")
             if cross_mode == "question":
-                length_hint = "盘问环节：连续提出 2-4 个「请问」式问题，每条独立成段，不要替对方回答。"
+                length_hint = (
+                    "质辩提问：只提出 1 个问题，必须面向规则里指定的回答方。"
+                    "问题以「请问」开头，15 秒内能说完，不要铺陈背景，不要替对方回答。"
+                )
             else:
-                length_hint = "回应盘问：逐条对应回答上文质询，格式可用「第一问…」「第二问…」；控制在4-5句，简洁精炼。"
+                length_hint = (
+                    "质辩回答：只回答上一位三辩刚提出的 1 个问题，必须以本席位身份作答。"
+                    "30 秒内说完，正面回应，不得反问、不得转移到长篇立论。"
+                )
         elif _is_internal_team_phase(debate.phase):
             if _is_task_assign_segment(debate.segment_label):
                 length_hint = (
@@ -436,9 +597,9 @@ class DebateGraph:
                 )
             else:
                 length_hint = (
-                    "队内讨论节点：必须体现二辩/三辩/四辩都在接话。"
-                    "输出格式严格使用「一辩：…」「二辩：…」「三辩：…」「四辩：…」。"
-                    "每人 1 句短句（口语化、能落地），总共 4-6 句，不要长段落。"
+                    "队内讨论节点：每名未发言辩手会作为独立 API 调用发言。"
+                    "当前调用只代表当前辩手本人，每位辩手在本段队内讨论中只发言一次。"
+                    "发言集中研讨如何合理利用本方论据库和规划辩论策略，不要写成公开立论。"
                 )
         elif agent.side in {"judge", "assistant"}:
             if debate.phase == "pre_match":
@@ -475,13 +636,13 @@ class DebateGraph:
         if debate.phase == "cross_examination":
             if _cross_examination_mode(debate.segment_label or "") == "question":
                 cross_format = (
-                    "必须使用 Markdown 二级标题 `## 质询`，下列 2-4 条编号问题；"
-                    "每条以「请问」开头，独立成段，不要自答。"
+                    "必须使用 Markdown 二级标题 `## 质辩提问`；"
+                    "正文只写一个以「请问」开头的问题，不得编号多问，不要自答。"
                 )
             else:
                 cross_format = (
-                    "必须使用 Markdown 二级标题 `## 回应盘问`，按「第一问/第二问…」逐条回应；"
-                    "先回应对方质询，再简要反驳。"
+                    "必须使用 Markdown 二级标题 `## 质辩回答`；"
+                    "正文只回答上一问，先给直接答案，再用一两句理由支撑。"
                 )
         if _is_internal_team_phase(debate.phase):
             response_rule = "队内讨论只接本方队友的话，不得写公开发言、不得称呼主席或评委。"
@@ -496,7 +657,10 @@ class DebateGraph:
                 "若对方提出了多个论点，必须逐一点名回应，不得选择性忽视任何一条主论点。"
                 "格式：先回应关键词 → 再推进己方论点。"
             )
-            citation_rule = "引用下方检索资料时，请在论据后标注【资料标题】（与列表标题完全一致），勿编造未列出的资料名。"
+            if debate.argument_bank_locked:
+                citation_rule = "知识性事实、数据、报告和案例必须来自本方论据库，并在对应论据后标注本方论据 ID，例如 [AFF-1] 或 [NEG-1]；不得使用论据库外的新事实。"
+            else:
+                citation_rule = "引用下方检索资料时，请在论据后标注【资料标题】（与列表标题完全一致），勿编造未列出的资料名。"
         messages = [
             {
                 "role": "system",
@@ -505,7 +669,7 @@ class DebateGraph:
                     f"{speaker_style}"
                     f"{cross_format}"
                     f"{segment_prompt_hint(debate)} {length_hint} "
-                    "输出给前端 Markdown 渲染，但正文尽量使用自然段。不要使用破折号，不要用星号粗体，不要堆叠符号；除非盘问环节必须编号，否则少用分点。"
+                    "必须输出 Markdown 文本给前端渲染，正文尽量使用自然段。不要使用破折号，不要用星号粗体，不要堆叠符号；除非盘问环节必须编号，否则少用分点。"
                     "语言要适合朗读，句子流畅，转折用普通逗号和句号承接。"
                     "必须写完整段发言再结束，不要中途截断；至少有一个完整收束句，不要停在「一旦、如果、第三、包括」等半句话。"
                     "严格遵守身份边界：正反方只代表本方立场；裁判只做中立评判，不提供战术建议，不替任何一方写稿。"
@@ -532,24 +696,32 @@ class DebateGraph:
         state["reflection_draft"] = None
         state["reflection_polished"] = None
 
+        if state.get("opening_evidence_blocked"):
+            return state
+
         if debate.phase == "free_debate":
             self._mark(debate, "reflection", "自由辩论：跳过草稿→定稿反思。")
+            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
             return state
 
         if debate.phase == "pre_match":
             self._mark(debate, "reflection", "赛前主持：跳过草稿→定稿反思。")
+            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
             return state
 
         if _is_internal_team_phase(debate.phase):
             self._mark(debate, "reflection", "队内准备：跳过正式发言反思链。")
+            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
             return state
 
         if debate.phase == "post_match":
             self._mark(debate, "reflection", "裁判终局：跳过辩手草稿反思链。")
+            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
             return state
 
         self._mark(debate, "reflection", "草稿→定稿：内部一轮反思。")
         agent = self._active_agent(debate)
+        await self._emit(on_event, self._workflow_progress_payload(debate, agent=agent))
         user_block = self._speech_user_content(debate, state)
         model = resolve_model(phase=debate.phase, speaker_id=agent.id)
 
@@ -690,51 +862,66 @@ class DebateGraph:
         debate: DebateState,
         agent,
     ) -> str:
-        if not _looks_incomplete(content):
+        target_chars = _completion_target_chars(debate)
+        normalized = re.sub(r"\s+", "", strip_model_reasoning(content or ""))
+        if _has_substantive_completion(content, debate) and (
+            not target_chars or len(normalized) >= target_chars
+        ):
             return content
-        continuation_prompt = [
-            *messages,
-            {
-                "role": "assistant",
-                "content": content,
-            },
-            {
-                "role": "user",
-                "content": (
-                    "上面的发言尚未写完（可能在半句处停止，或只写了「第一」层/点却未写完后续层次）。"
-                    "请只续写缺失部分，补全已宣布的论证框架，并用 1 句完整收束句结束；不要重复已经写过的内容。"
-                ),
-            },
-        ]
-        try:
-            extra = await chat_completion(
-                continuation_prompt,
-                model=model,
-                temperature=0.55,
-                max_tokens=min(1200, _max_tokens_for_phase(debate.phase)),
-                debate_id=debate.id,
-                operation="speech_continuation",
+        completed = strip_model_reasoning(content or "")
+        max_rounds = 3 if debate.phase == "opening_statement" else 1
+        for _ in range(max_rounds):
+            normalized = re.sub(r"\s+", "", completed)
+            if _has_substantive_completion(completed, debate) and (
+                not target_chars or len(normalized) >= target_chars
+            ):
+                break
+            remaining_note = (
+                f"当前约 {len(normalized)} 字，目标至少 {target_chars} 字。"
+                if target_chars
+                else "当前内容仍不足。"
             )
-        except DeepSeekError:
-            extra = "因此，这一点要立刻收束为可执行的攻防任务，避免停在半句上。"
-        if not extra:
-            return content
-        extra = strip_model_reasoning(extra)
-        if not extra:
-            return content
-        separator = "" if content.endswith((" ", "\n")) else ""
-        completed = f"{content}{separator}{extra.strip()}"
-        completed = strip_model_reasoning(completed)
-        await self._emit(
-            on_event,
-            self._speech_chunk_payload(
-                message_id=message_id,
-                chunk=extra,
-                content=completed,
-                debate=debate,
-                agent=agent,
-            ),
-        )
+            continuation_prompt = [
+                *messages,
+                {
+                    "role": "assistant",
+                    "content": completed,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "上面的发言尚未写完，或虽然有标点但内容过短、不足以完成当前环节。"
+                        f"{remaining_note}"
+                        "请只续写缺失部分，补全已宣布的论证框架或质辩问答任务，并用完整收束句结束；不要重复已经写过的内容。"
+                    ),
+                },
+            ]
+            try:
+                extra = await chat_completion(
+                    continuation_prompt,
+                    model=model,
+                    temperature=0.55,
+                    max_tokens=min(2400, _max_tokens_for_phase(debate.phase)),
+                    debate_id=debate.id,
+                    operation="speech_continuation",
+                )
+            except DeepSeekError:
+                extra = "因此，这一点要立刻收束为可执行的攻防任务，避免停在半句上。"
+            extra = strip_model_reasoning(extra or "")
+            if not extra:
+                break
+            separator = "\n\n" if completed and not completed.endswith(("\n", " ")) else ""
+            completed = strip_model_reasoning(f"{completed}{separator}{extra.strip()}")
+            await self._emit(
+                on_event,
+                self._speech_chunk_payload(
+                    message_id=message_id,
+                    chunk=extra,
+                    content=completed,
+                    debate=debate,
+                    agent=agent,
+                ),
+            )
         return completed
 
     async def _prepare_next_pipeline(self, debate: DebateState, partial: str, on_event: EventCallback | None) -> None:
@@ -757,84 +944,34 @@ class DebateGraph:
             },
         )
 
-    def _team_discussion_prompt(self, debate: DebateState, state: dict, agent) -> list[dict[str, str]]:
-        side_label = "正方" if agent.side == "affirmative" else "反方"
-        return [
-            {
-                "role": "system",
-                "content": (
-                    f"你正在生成{side_label}队内讨论，不是公开发言。"
-                    "必须严格输出恰好四行，格式为「一辩：...」「二辩：...」「三辩：...」「四辩：...」，缺少任何一行均视为格式错误。"
-                    "每位辩手只说1句短句，口语化，像现场队友快速确认分工。"
-                    "二辩/三辩/四辩在接话时须明确引用一辩的框架，先表示认可，再补充不同维度（数据/案例/价值）；禁止四位辩手各说各话、互不衔接。"
-                    "不得称呼主席、评委或对方辩友；不得写成正式立论、盘问或总结陈词。"
-                    "不得编造数据、论文、法规；证据不足时只说常识推断或待查。"
-                ),
-            },
-            {"role": "user", "content": self._speech_user_content(debate, state)},
-        ]
-
-    def _parse_team_discussion_lines(self, text: str, debate: DebateState, side: str) -> list[tuple[int, str]]:
-        import logging as _logging
-        cleaned = strip_model_reasoning(text)
-        by_position: dict[int, str] = {}
-        pattern = re.compile(r"([一二三四1234])辩\s*[:：]\s*([\s\S]*?)(?=(?:\n\s*)?[一二三四1234]辩\s*[:：]|$)")
-        number_map = {"一": 1, "二": 2, "三": 3, "四": 4, "1": 1, "2": 2, "3": 3, "4": 4}
-        for match in pattern.finditer(cleaned):
-            position = number_map.get(match.group(1))
-            content = re.sub(r"\s+", " ", match.group(2)).strip()
-            if position and content:
-                by_position[position] = _limit_sentences(content, 2)
-        if len(by_position) < 4:
-            missing = [p for p in range(1, 5) if p not in by_position]
-            _logging.warning(
-                "team_discussion parse: only %d/4 positions found (missing: %s) for debate=%s side=%s",
-                len(by_position), missing, debate.id, side,
-            )
-        fallback = {
-            1: "我先把本轮框架收住，大家围绕当前争点补强，不要跑偏。",
-            2: "我负责补定义和反驳入口，用一个日常例子把逻辑讲清。",
-            3: "我负责追问对方薄弱处，把问题压到可验证和可执行上。",
-            4: "我负责最后收束标准，把我们这一边的胜负线讲稳。",
-        }
-        return [(position, by_position.get(position) or fallback[position]) for position in range(1, 5)]
-
     async def _team_discussion_generate(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
         on_event: EventCallback | None = state.get("on_event")
         agent = self._active_agent(debate)
-        model = resolve_model(phase=debate.phase, speaker_id=agent.id)
-        self._mark(debate, "speech_generate", "队内讨论：四位辩手依次短句接话。")
-        try:
-            raw = await chat_completion(
-                self._team_discussion_prompt(debate, state, agent),
-                model=model,
-                temperature=0.65,
-                max_tokens=800,
-                debate_id=debate.id,
-                operation="team_discussion",
-            )
-        except DeepSeekError:
-            raw = ""
-        lines = self._parse_team_discussion_lines(raw, debate, agent.side)
-        spoken = _positions_spoken_in_segment(debate, agent.side)
-        if _first_debater_already_assigned(debate, agent.side):
-            spoken.add(1)
-        lines = [(position, content) for position, content in lines if position not in spoken]
+        self._mark(debate, "speech_generate", "队内讨论：每位未发言辩手独立调用并只发言一次。")
+        await self._emit(on_event, self._workflow_progress_payload(debate, agent=agent))
         private_thought = f"内部策略：{state.get('strategy', '')}"
         messages: list[DebateMessage] = []
-        prefix = "aff" if agent.side == "affirmative" else "neg"
-        for position, content in lines:
-            teammate = next((a for a in debate.agents if a.side == agent.side and a.position == position), None)
-            if teammate is None:
-                continue
+        context = TeamDiscussionContext(
+            stance_action=state.get("stance_action", "队内讨论"),
+            strategy=state.get("strategy", ""),
+            sources=state.get("sources") or [],
+        )
+        for teammate in team_discussion_speakers(debate, agent):
+            await self._emit(on_event, self._workflow_progress_payload(debate, agent=teammate))
+            draft = await generate_team_discussion_draft(
+                debate,
+                context,
+                teammate,
+                chat_completion_fn=chat_completion,
+            )
             message_id = str(uuid4())
             await self._emit(
                 on_event,
                 {
                     "type": "speech_start",
                     "message_id": message_id,
-                    "speaker_id": f"{prefix}_{position}",
+                    "speaker_id": teammate.id,
                     "speaker_name": teammate.name,
                     "side": teammate.side,
                     "phase": debate.phase,
@@ -845,8 +982,8 @@ class DebateGraph:
                 on_event,
                 self._speech_chunk_payload(
                     message_id=message_id,
-                    chunk=content,
-                    content=content,
+                    chunk=draft.content,
+                    content=draft.content,
                     debate=debate,
                     agent=teammate,
                 ),
@@ -856,7 +993,7 @@ class DebateGraph:
                 {
                     "type": "speech_end",
                     "message_id": message_id,
-                    "content": content,
+                    "content": draft.content,
                     "speaker_id": teammate.id,
                     "speaker_name": teammate.name,
                     "side": teammate.side,
@@ -871,7 +1008,7 @@ class DebateGraph:
                     speaker_id=teammate.id,
                     speaker_name=teammate.name,
                     side=teammate.side,
-                    content=content,
+                    content=draft.content,
                     phase=debate.phase,
                     segment_label=debate.segment_label,
                     sources=[],
@@ -887,8 +1024,71 @@ class DebateGraph:
     async def _speech_generate_streaming(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
         on_event: EventCallback | None = state.get("on_event")
+        if state.get("opening_evidence_blocked"):
+            state["draft_message"] = None
+            state["rewrite_count"] = state.get("rewrite_count", 0) + 1
+            return state
         if _is_team_discussion_segment(debate) and not _is_task_assign_segment(debate.segment_label):
             return await self._team_discussion_generate(state)
+        if debate.phase == "opening_prep" and "真实论据入库" in (debate.segment_label or ""):
+            agent = self._active_agent(debate)
+            message_id = str(uuid4())
+            aff_count = argument_count_for_side(debate, "affirmative")
+            neg_count = argument_count_for_side(debate, "negative")
+            content = (
+                f"论据库已完成赛前入库：正方 {aff_count} 条，反方 {neg_count} 条。"
+                "接下来的队内讨论将围绕这些论据规划立论策略。"
+            )
+            await self._emit(
+                on_event,
+                {
+                    "type": "speech_start",
+                    "message_id": message_id,
+                    "speaker_id": agent.id,
+                    "speaker_name": agent.name,
+                    "side": agent.side,
+                    "phase": debate.phase,
+                    "segment_label": debate.segment_label,
+                },
+            )
+            await self._emit(
+                on_event,
+                self._speech_chunk_payload(
+                    message_id=message_id,
+                    chunk=content,
+                    content=content,
+                    debate=debate,
+                    agent=agent,
+                ),
+            )
+            await self._emit(
+                on_event,
+                {
+                    "type": "speech_end",
+                    "message_id": message_id,
+                    "content": content,
+                    "speaker_id": agent.id,
+                    "speaker_name": agent.name,
+                    "side": agent.side,
+                    "phase": debate.phase,
+                    "segment_label": debate.segment_label,
+                },
+            )
+            state["draft_message"] = DebateMessage(
+                id=message_id,
+                debate_id=debate.id,
+                speaker_id=agent.id,
+                speaker_name=agent.name,
+                side=agent.side,
+                content=content,
+                phase=debate.phase,
+                segment_label=debate.segment_label,
+                sources=[],
+                private_thought="裁判确认论据库赛前入库完成。",
+                strategy=state.get("strategy"),
+            )
+            state["rewrite_count"] = state.get("rewrite_count", 0) + 1
+            return state
         if state.get("rewrite_count", 0) >= 1:
             state["reflection_polished"] = None
 
@@ -900,6 +1100,7 @@ class DebateGraph:
         else:
             self._mark(debate, "speech_generate", "DeepSeek 正在流式生成 Markdown 发言。")
         agent = self._active_agent(debate)
+        await self._emit(on_event, self._workflow_progress_payload(debate, agent=agent))
         messages, sources = self._speech_messages(debate, state, agent)
         model = resolve_model(phase=debate.phase, speaker_id=agent.id)
         message_id = str(uuid4())
@@ -908,6 +1109,7 @@ class DebateGraph:
 
         if agent.side == "judge" and "输出裁判报告" in (debate.segment_label or ""):
             self._mark(debate, "speech_generate", "裁判正在生成终局报告。")
+            await self._emit(on_event, self._workflow_progress_payload(debate, agent=agent))
             content = strip_model_reasoning(await generate_final_report(debate))
             state["final_report_generated"] = True
             await self._emit(
@@ -1099,21 +1301,46 @@ class DebateGraph:
 
     async def _fact_check(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
+        if state.get("opening_evidence_blocked"):
+            state["facts_ok"] = True
+            return state
         self._mark(debate, "fact_check", "快速检查发言是否含明显无来源断言。")
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         messages: list[DebateMessage] = state.get("draft_messages") or [state["draft_message"]]
         risky_terms = ("研究表明", "数据显示", "%", "法律规定", "论文指出")
+        if not _is_public_debate_phase(debate.phase):
+            for message in messages:
+                if message is not None:
+                    message.content = strip_model_reasoning(message.content)
+                    message.hallucination_risk = "low"
+            state["facts_ok"] = True
+            return state
         facts_ok = True
         for message in messages:
-            message.content = strip_model_reasoning(sanitize_citations(message.content, message.sources))
-            unverified = has_unverified_citations(message.content, message.sources)
+            is_internal_discussion = _is_team_discussion_segment(debate) and message.side in {"affirmative", "negative"}
+            if is_internal_discussion:
+                message.content = strip_model_reasoning(message.content)
+                unverified = False
+            else:
+                message.content = strip_model_reasoning(
+                    _sanitize_content_preserving_argument_ids(message.content, message.sources)
+                )
+                unverified = _has_unverified_citations_preserving_argument_ids(message.content, message.sources)
             risky = any(term in message.content for term in risky_terms)
+            missing_opening_bank_ids: set[str] = set()
+            if message.phase == "opening_statement" and message.side in {"affirmative", "negative"}:
+                required_ids = argument_ids_for_side(debate, message.side)
+                if required_ids:
+                    missing_opening_bank_ids = required_ids - referenced_argument_ids(message.content)
             if unverified or (risky and not message.sources):
+                facts_ok = False
+            if missing_opening_bank_ids:
                 facts_ok = False
             # 设置幻觉风险等级供前端展示
             import re as _re
             has_sources = bool(message.sources)
             has_numbers = bool(_re.search(r'\d+[\.\d]*\s*%|\d{4}\s*年|\d+\s*(万|亿|项|人|次)', message.content))
-            if unverified or (risky and not has_sources):
+            if unverified or (risky and not has_sources) or missing_opening_bank_ids:
                 message.hallucination_risk = "high"
             elif risky and has_sources:
                 message.hallucination_risk = "low"
@@ -1167,12 +1394,17 @@ class DebateGraph:
 
     async def _publish_message(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
+        if state.get("opening_evidence_blocked"):
+            debate.updated_at = utc_now()
+            return state
         self._mark(debate, "publish_message", "写入长期记录并准备实时广播。")
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         messages: list[DebateMessage] = state.get("draft_messages") or [state["draft_message"]]
         for message in messages:
             if message is not None:
                 debate.messages.append(message)
-                add_message_arguments_to_bank(debate, message)
+                if _is_public_debate_phase(message.phase) and message.sources:
+                    await add_message_arguments_to_bank_with_ai_titles(debate, message)
         debate.updated_at = utc_now()
         label = (messages[-1].segment_label if messages and messages[-1] else debate.segment_label) or ""
         if "输出裁判报告" in label:
@@ -1184,7 +1416,10 @@ class DebateGraph:
 
     async def _judge_score(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
+        if state.get("opening_evidence_blocked"):
+            return state
         self._mark(debate, "judge_score", "裁判按逻辑、回应和证据进行快速评分。")
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         if _is_internal_team_phase(debate.phase):
             return state
         message: DebateMessage = debate.messages[-1]
@@ -1212,7 +1447,11 @@ class DebateGraph:
 
     async def _turn_router(self, state: dict) -> dict:
         debate: DebateState = state["debate"]
+        if state.get("opening_evidence_blocked"):
+            debate.schedule = build_schedule_status(debate.schedule_index, debate.schedule_template)
+            return state
         self._mark(debate, "turn_router", "按 4v4 标准赛制进入下一环节。")
+        await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         debate.turn_index += 1
         advance_schedule(debate)
         debate.schedule = build_schedule_status(debate.schedule_index, debate.schedule_template)
