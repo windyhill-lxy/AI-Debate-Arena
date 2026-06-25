@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 辩论场 · 优化项目报告</title>
+<script>
+window.DECK_MANIFEST = [
+  {
+    "file": "slides/01-cover.html",
+    "label": "封面"
+  },
+  {
+    "file": "slides/02-origin.html",
+    "label": "项目缘起"
+  },
+  {
+    "file": "slides/03-problem.html",
+    "label": "问题定义"
+  },
+  {
+    "file": "slides/04-agent-thinking.html",
+    "label": "智能体理解"
+  },
+  {
+    "file": "slides/05-product.html",
+    "label": "产品概览"
+  },
+  {
+    "file": "slides/06-user-flow.html",
+    "label": "用户路径"
+  },
+  {
+    "file": "slides/07-architecture.html",
+    "label": "系统架构"
+  },
+  {
+    "file": "slides/08-agents.html",
+    "label": "多智能体"
+  },
+  {
+    "file": "slides/09-workflow.html",
+    "label": "工作流设计"
+  },
+  {
+    "file": "slides/10-runtime-loop.html",
+    "label": "单回合内核"
+  },
+  {
+    "file": "slides/11-anti-hallucination.html",
+    "label": "防幻觉机制"
+  },
+  {
+    "file": "slides/12-context.html",
+    "label": "上下文权限"
+  },
+  {
+    "file": "slides/13-human-ai.html",
+    "label": "人机协同"
+  },
+  {
+    "file": "slides/14-cross-device.html",
+    "label": "跨端部署"
+  },
+  {
+    "file": "slides/15-engineering.html",
+    "label": "工程成果"
+  },
+  {
+    "file": "slides/16-score-map.html",
+    "label": "评分映射"
+  },
+  {
+    "file": "slides/17-reflection.html",
+    "label": "反思与展望"
+  },
+  {
+    "file": "slides/18-closing.html",
+    "label": "封底"
+  }
+];
+window.DECK_WIDTH = 1920;
+window.DECK_HEIGHT = 1080;
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#211b16;font-family:"Microsoft YaHei","PingFang SC",sans-serif}
+body[data-mode="present"] .overview,body[data-mode="present"] .start-btn{display:none}
+body[data-mode="overview"] #present-ui{display:none}
+.overview{position:fixed;inset:0;overflow:auto;padding:70px 78px 120px;background:linear-gradient(135deg,#f1eadf,#d8cbb7)}
+.overview-title{text-align:center;margin-bottom:34px;color:rgba(33,27,22,.62);letter-spacing:.16em;font-size:15px;text-transform:uppercase}
+.wall{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:26px;perspective:2000px}
+.card{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:8px;background:#fff8ed;box-shadow:0 22px 50px rgba(56,42,29,.22);cursor:pointer;transition:.24s ease}
+.card:hover{transform:translateY(-8px) scale(1.04);box-shadow:0 34px 76px rgba(56,42,29,.32);z-index:3}
+.card iframe{width:1920px;height:1080px;border:0;transform-origin:top left;pointer-events:none}
+.num{position:absolute;left:10px;bottom:10px;padding:5px 9px;border-radius:999px;background:rgba(33,27,22,.76);color:#fff;font-size:12px;letter-spacing:.04em}
+.start-btn{position:fixed;right:28px;bottom:28px;z-index:50;border:0;border-radius:999px;padding:14px 26px;background:#211b16;color:#f7f0e4;font-size:16px;letter-spacing:.06em;cursor:pointer;box-shadow:0 12px 32px rgba(33,27,22,.28)}
+#stage{position:fixed;top:50%;left:50%;width:1920px;height:1080px;transform-origin:top left;background:#fff;box-shadow:0 16px 70px rgba(0,0,0,.45)}
+#frame{width:100%;height:100%;border:0;display:block;background:#fff}
+.counter,.overview-btn{position:fixed;z-index:60;border:0;border-radius:999px;background:rgba(0,0,0,.58);color:rgba(255,255,255,.86);font-size:14px;letter-spacing:.05em}
+.counter{right:22px;bottom:22px;padding:7px 14px}
+.overview-btn{left:22px;top:22px;padding:8px 14px;cursor:pointer}
+.nav{position:fixed;top:0;bottom:0;width:18%;z-index:40;cursor:pointer}.nav.left{left:0}.nav.right{right:0}
+@media print{@page{size:1920px 1080px;margin:0}body{overflow:visible;background:#fff}.overview,.start-btn,.counter,.overview-btn,.nav,#present-ui{display:none!important}.print-stack{display:block!important}.print-stack iframe{width:1920px;height:1080px;page-break-after:always;border:0;display:block}}
+</style>
+</head>
+<body data-mode="overview">
+<main class="overview"><div class="overview-title">AI Debate Arena · 优化项目报告 · 点击任意页进入演示</div><div class="wall" id="wall"></div></main>
+<button class="start-btn" id="startBtn">开始演示</button>
+<section id="present-ui"><div id="stage"><iframe id="frame" src="about:blank"></iframe></div><button class="overview-btn" id="overviewBtn">概览</button><div class="nav left" id="prev"></div><div class="nav right" id="next"></div><div class="counter" id="counter"></div></section>
+<div class="print-stack" id="printStack" style="display:none;"></div>
+<script>
+(function(){const deck=window.DECK_MANIFEST,W=window.DECK_WIDTH,H=window.DECK_HEIGHT,wall=document.getElementById("wall"),stage=document.getElementById("stage"),frame=document.getElementById("frame"),counter=document.getElementById("counter"),printStack=document.getElementById("printStack");let current=Number(localStorage.getItem("ai-debate-report-current")||0);function buildOverview(){wall.innerHTML="";deck.forEach((item,idx)=>{const card=document.createElement("div");card.className="card";const iframe=document.createElement("iframe");iframe.src=item.file;card.appendChild(iframe);const num=document.createElement("div");num.className="num";num.textContent=idx+1+" · "+item.label;card.appendChild(num);card.addEventListener("click",()=>{current=idx;present()});wall.appendChild(card)});requestAnimationFrame(resizeOverviewCards)}function resizeOverviewCards(){document.querySelectorAll(".card iframe").forEach((iframe)=>{const rect=iframe.parentElement.getBoundingClientRect();iframe.style.transform="scale("+(rect.width/W)+")"})}function fit(){const scale=Math.min(window.innerWidth/W,window.innerHeight/H);stage.style.transform="translate("+(-W*scale/2)+"px, "+(-H*scale/2)+"px) scale("+scale+")"}function show(idx){current=Math.max(0,Math.min(deck.length-1,idx));localStorage.setItem("ai-debate-report-current",String(current));frame.src=deck[current].file;counter.textContent=(current+1)+" / "+deck.length+" · "+deck[current].label}function present(){document.body.dataset.mode="present";fit();show(current)}function overview(){document.body.dataset.mode="overview";buildOverview()}function go(delta){if(document.body.dataset.mode!=="present")return;show(current+delta)}function buildPrintStack(){printStack.innerHTML="";deck.forEach((item)=>{const iframe=document.createElement("iframe");iframe.src=item.file;printStack.appendChild(iframe)})}document.getElementById("startBtn").addEventListener("click",present);document.getElementById("overviewBtn").addEventListener("click",overview);document.getElementById("prev").addEventListener("click",()=>go(-1));document.getElementById("next").addEventListener("click",()=>go(1));window.addEventListener("resize",()=>{fit();resizeOverviewCards()});window.addEventListener("beforeprint",buildPrintStack);window.addEventListener("keydown",(event)=>{if(event.key==="Escape")overview();if(event.key==="ArrowRight"||event.key===" "||event.key==="PageDown")go(1);if(event.key==="ArrowLeft"||event.key==="PageUp")go(-1);if(event.key==="Home"){current=0;present()}if(event.key==="End"){current=deck.length-1;present()}if(event.key.toLowerCase()==="p")window.print()});buildOverview()})();
+</script>
+</body>
+</html>

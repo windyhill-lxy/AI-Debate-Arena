@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>防幻觉机制</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <section class="slide">
+    <div class="masthead">
+      <span>Trust</span>
+      <span>让论证可验证</span>
+    </div>
+
+    <div class="grid-2" style="height: 900px;">
+      <div>
+        <div class="kicker">创新点之一</div>
+        <h2>AI 辩论最危险的地方，是“听起来很有道理”。</h2>
+        <p class="lead">
+          所以系统不把流畅文本当作最终答案，而是把事实来源、引用编号、核查结果和裁判扣分放进同一条链路。
+          目标不是让模型永不出错，而是让错误在训练流程里被发现、被标记、被复盘。
+        </p>
+      </div>
+
+      <div class="matrix">
+        <div class="matrix-row">
+          <div>资料入库</div>
+          <div>用户上传材料形成可检索来源，发言引用绑定为 `[kb-x]` 这类可追踪编号。</div>
+        </div>
+        <div class="matrix-row">
+          <div>发言前</div>
+          <div>RAG 根据当前环节、持方和历史战场检索资料，提示词约束不得编造来源。</div>
+        </div>
+        <div class="matrix-row">
+          <div>发言后</div>
+          <div>事实核查节点检查风险；不通过时回到生成节点重写，避免问题直接进入公开发言。</div>
+        </div>
+        <div class="matrix-row">
+          <div>发布前</div>
+          <div>`sanitize_citations` 移除未入库引用，让伪造编号不能伪装成真实资料。</div>
+        </div>
+        <div class="matrix-row">
+          <div>赛后</div>
+          <div>裁判报告记录主战场、失误与幻觉风险，训练者可以据此复盘证据使用质量。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/ai-debate-arena/websocket-events.schema.json",
+  "title": "AI 辩论场 WebSocket 事件（服务端推送）",
+  "description": "连接 `ws://<host>/api/debates/ws/{debate_id}` 后，服务端 JSON 消息的 `event` 字段及常见负载字段。",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["event", "debate"],
+      "properties": {
+        "event": { "const": "snapshot" },
+        "debate": { "type": "object" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "debate"],
+      "properties": {
+        "event": { "enum": ["debate_created", "debate_stepped", "message_added"] },
+        "debate": { "type": "object" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "debate"],
+      "properties": {
+        "event": { "const": "awaiting_user" },
+        "debate": { "type": "object" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "debate"],
+      "properties": {
+        "event": { "const": "debate_finished" },
+        "debate": { "type": "object" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event"],
+      "properties": {
+        "event": { "const": "speech_start" },
+        "message_id": { "type": "string" },
+        "speaker_id": { "type": "string" },
+        "speaker_name": { "type": "string" },
+        "side": { "type": "string" },
+        "phase": { "type": "string" },
+        "segment_label": { "type": "string" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "message_id", "content"],
+      "properties": {
+        "event": { "const": "speech_chunk" },
+        "message_id": { "type": "string" },
+        "chunk": { "type": "string" },
+        "content": { "type": "string" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "message_id", "content"],
+      "properties": {
+        "event": { "const": "speech_end" },
+        "message_id": { "type": "string" },
+        "content": { "type": "string" },
+        "speaker_id": { "type": "string" },
+        "speaker_name": { "type": "string" },
+        "side": { "type": "string" },
+        "phase": { "type": "string" },
+        "segment_label": { "type": "string" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event"],
+      "properties": {
+        "event": { "const": "reflection_done" },
+        "phase": { "type": "string" },
+        "draft_chars": { "type": "integer" },
+        "polished_chars": { "type": "integer" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event"],
+      "properties": {
+        "event": { "const": "pipeline_prep" },
+        "next_speaker_id": { "type": "string" },
+        "next_speaker_name": { "type": "string" },
+        "partial_length": { "type": "integer" },
+        "sources_count": { "type": "integer" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "message_id"],
+      "properties": {
+        "event": { "const": "speech_audio_start" },
+        "message_id": { "type": "string" },
+        "speaker_id": { "type": "string" },
+        "speaker_name": { "type": "string" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "message_id"],
+      "properties": {
+        "event": { "const": "speech_audio_progress" },
+        "message_id": { "type": "string" },
+        "speaker_name": { "type": "string" },
+        "chunk": { "type": "integer" },
+        "total": { "type": "integer" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "message_id", "audio_url"],
+      "properties": {
+        "event": { "const": "speech_audio" },
+        "message_id": { "type": "string" },
+        "speaker_id": { "type": "string" },
+        "speaker_name": { "type": "string" },
+        "audio_url": { "type": "string" },
+        "audio_urls": { "type": "array", "items": { "type": "string" } },
+        "voice": { "type": "string" },
+        "instructions": { "type": "string" },
+        "expires_at": {},
+        "playback_wait_sec": { "type": "number" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event", "message_id"],
+      "properties": {
+        "event": { "const": "speech_audio_error" },
+        "message_id": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["event"],
+      "properties": {
+        "event": { "const": "error" },
+        "message": { "type": "string" }
+      }
+    }
+  ]
+}

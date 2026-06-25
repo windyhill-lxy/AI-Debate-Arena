@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>防幻觉机制 · AI辩论场</title>
+  <link rel="stylesheet" href="../shared/tokens.css">
+</head>
+<body>
+  <section class="slide compact-table">
+    <div class="masthead"><span>AI DEBATE ARENA</span><span>第二幕 · 防幻觉工程</span></div>
+    
+    <div class="eyebrow">让每一条论据都可以被追问</div>
+    <h2>AI 辩论最危险的地方，是「听起来很有道理」。</h2>
+    <p class="lead">系统不把流畅文本当作最终答案，而是把事实来源、引用编号、核查结果和裁判扣分放进同一条链路。目标不是让模型永不出错，而是让错误在训练流程里被发现、被标记、被复盘。</p>
+    
+  <div class="rows"><div class="row"><strong>资料入库</strong><span>用户上传材料分块写入本场向量库；AI 检索到的真实论据登记为 AFF/NEG 编号。</span></div><div class="row"><strong>发言前</strong><span>RAG 根据当前环节、持方和历史战场检索资料，提示词约束不得编造来源。</span></div><div class="row"><strong>发言中</strong><span>正式知识性发言必须引用本方论据 ID；用户公开发言也会校验引用。</span></div><div class="row"><strong>发布前</strong><span>`sanitize_citations` 移除未入库资料编号，让伪造引用不能伪装成真实资料。</span></div><div class="row"><strong>赛后</strong><span>裁判报告记录主战场、失误与幻觉风险，训练者据此复盘证据使用质量。</span></div></div>
+    <div class="footer"><span>防幻觉机制</span><span>AI 智能体开发专项赛</span></div>
+  </section>
+</body>
+</html>

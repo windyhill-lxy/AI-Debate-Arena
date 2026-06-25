@@ -1,0 +1,4 @@
+# E2E browser tests (Python Playwright, no Node required)
+-r requirements.txt
+playwright>=1.52.0
+pytest-playwright>=0.7.0

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>系统架构</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <section class="slide">
+    <div class="masthead">
+      <span>Architecture</span>
+      <span>React · FastAPI · LangGraph</span>
+    </div>
+
+    <div class="kicker">系统设计</div>
+    <h2>架构不是为展示而画，而是支撑多人、实时、可复盘的辩论现场。</h2>
+
+    <div class="architecture">
+      <div class="arch-layer panel">
+        <h3>表现层</h3>
+        <p>
+          React + Vite 构建首页、辩论室、联机大厅、回放页和管理页。
+          同一套 Web UI 可以在电脑浏览器、手机浏览器和 Electron 桌面壳中运行。
+        </p>
+      </div>
+      <div class="arch-layer panel">
+        <h3>编排层</h3>
+        <p>
+          FastAPI 提供 REST 与 WebSocket，LangGraph 负责单回合智能体循环，
+          YAML 赛程状态机负责正式 4v4 辩论的阶段推进。
+        </p>
+      </div>
+      <div class="arch-layer panel">
+        <h3>能力层</h3>
+        <p>
+          DeepSeek 作为默认 LLM 网关，RAG 与 SQLite 向量库提供资料检索，
+          MongoDB/Redis 用于持久化与实时缓存，也支持内存降级便于现场演示。
+        </p>
+      </div>
+    </div>
+
+    <p class="large-note">
+      技术选型的现实取向很明确：比赛和学校环境未必稳定，所以系统同时保留“完整工程模式”和“先跑起来的降级模式”。
+    </p>
+  </section>
+</body>
+</html>

@@ -1,0 +1,109 @@
+/* Local Google Sans Chinese bundle. See ../assets/fonts/google-sans/manifest.txt. */
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/NotoSansSCSubset-300.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  unicode-range: U+3400-9FFF, U+F900-FAFF;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/NotoSansSCSubset-400.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+3400-9FFF, U+F900-FAFF;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/NotoSansSCSubset-500.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  unicode-range: U+3400-9FFF, U+F900-FAFF;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/NotoSansSCSubset-600.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  unicode-range: U+3400-9FFF, U+F900-FAFF;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/NotoSansSCSubset-700.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+3400-9FFF, U+F900-FAFF;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/NotoSansSCSubset-800.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  unicode-range: U+3400-9FFF, U+F900-FAFF;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/GoogleSansChinese-300.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/GoogleSansChinese-400.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/GoogleSansChinese-500.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/GoogleSansChinese-600.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/GoogleSansChinese-700.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Google Sans Chinese";
+  src: url("../assets/fonts/google-sans/GoogleSansChinese-800.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+}
+
+:root {
+  --font-ui-sans: "Google Sans Chinese", ui-sans-serif, system-ui, sans-serif;
+  --font-reading-serif: "Google Sans Chinese", ui-sans-serif, system-ui, sans-serif;
+  --font-code-mono: "Google Sans Chinese", ui-monospace, monospace;
+}
