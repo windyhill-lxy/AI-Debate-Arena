@@ -121,7 +121,7 @@ export default function FloatingConfidenceCamera({ enabledByMode = true }) {
       const res = await fetch(`${API_BASE}/api/confidence-monitor/toggle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: next }),
+        body: JSON.stringify({ enabled: next, low_performance: true }),
       });
       if (!res.ok) return;
       setMonitorOn(next);

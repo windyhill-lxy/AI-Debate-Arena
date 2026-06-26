@@ -9,7 +9,12 @@ from app.models import (
     default_agents,
     workflow_template,
 )
-from app.services.debate_mode import is_user_task_assign_segment, needs_user_turn, user_speaker_id
+from app.services.debate_mode import (
+    is_user_task_assign_segment,
+    needs_user_turn,
+    prepare_next_online_user_turn,
+    user_speaker_id,
+)
 from app.services.debate_schedule import apply_segment, get_segment, init_schedule
 from app.models import build_schedule_status
 
@@ -60,6 +65,17 @@ def test_workflow_template_places_opening_evidence_before_task_assignment() -> N
     ids = [node.id for node in workflow_template()]
 
     assert ids.index("opening_evidence_bank") < ids.index("opening_task_assign")
+
+
+def test_formal_schedule_removes_free_and_closing_team_discussions() -> None:
+    ids = [item.id for item in build_schedule_status(0, "formal_4v4")]
+
+    assert "aff_free_team_discussion" not in ids
+    assert "neg_free_team_discussion" not in ids
+    assert "aff_closing_discussion" not in ids
+    assert "neg_closing_discussion" not in ids
+    assert ids.index("free_ready") < ids.index("free_debate_pool")
+    assert ids.index("closing_frame") < ids.index("closing_neg4")
 
 
 def test_user_speaker_id() -> None:
@@ -245,6 +261,7 @@ def test_online_match_team_discussion_waits_each_connected_debater_once() -> Non
         )
     )
     assert needs_user_turn(debate) is True
+    assert prepare_next_online_user_turn(debate) is True
     assert debate.active_speaker_id == "aff_2"
     debate.messages.append(
         DebateMessage(
@@ -261,10 +278,11 @@ def test_online_match_team_discussion_waits_each_connected_debater_once() -> Non
     assert needs_user_turn(debate) is False
 
 
-def test_online_match_opening_discussion_still_waits_first_debater_after_task_assign() -> None:
+def test_online_match_opening_discussion_skips_first_debater_after_task_assign() -> None:
     debate = _debate(DebateMode.online_match)
     init_schedule(debate)
     debate.participants.append(OnlineParticipant(name="正方一辩", side="affirmative", position=1, connected=True))
+    debate.participants.append(OnlineParticipant(name="正方二辩", side="affirmative", position=2, connected=True))
 
     for index in range(120):
         segment = get_segment(debate, index)
@@ -290,6 +308,42 @@ def test_online_match_opening_discussion_still_waits_first_debater_after_task_as
 
     assert needs_user_turn(debate) is True
     assert debate.active_speaker_id == "aff_1"
+    assert prepare_next_online_user_turn(debate) is True
+    assert debate.active_speaker_id == "aff_2"
+
+
+def test_needs_user_turn_is_readonly_for_online_team_discussion() -> None:
+    debate = _debate(DebateMode.online_match)
+    init_schedule(debate)
+    debate.participants.append(OnlineParticipant(name="正方二辩", side="affirmative", position=2, connected=True))
+
+    for index in range(120):
+        segment = get_segment(debate, index)
+        if segment and segment.id == "aff_opening_discussion":
+            apply_segment(debate, index)
+            _fill_opening_argument_bank(debate)
+            break
+    else:
+        raise AssertionError("missing aff_opening_discussion segment")
+
+    debate.messages.append(
+        DebateMessage(
+            debate_id=debate.id,
+            speaker_id="aff_1",
+            speaker_name="正方一辩",
+            side="affirmative",
+            content="任务分配已经发言。",
+            phase=debate.phase,
+            segment_label="立论前准备 · 一辩任务分配",
+            speech_flag="ok",
+        )
+    )
+
+    assert debate.active_speaker_id == "aff_1"
+    assert needs_user_turn(debate) is True
+    assert debate.active_speaker_id == "aff_1"
+    assert prepare_next_online_user_turn(debate) is True
+    assert debate.active_speaker_id == "aff_2"
 
 
 def test_online_match_team_discussion_waits_for_claimed_human_seat_even_if_socket_is_between_polls() -> None:
@@ -325,6 +379,8 @@ def test_online_match_team_discussion_waits_for_claimed_human_seat_even_if_socke
     assert waiting is not None
     assert waiting.position == 2
     assert needs_user_turn(debate) is True
+    assert debate.active_speaker_id == "aff_1"
+    assert prepare_next_online_user_turn(debate) is True
     assert debate.active_speaker_id == "aff_2"
 
 

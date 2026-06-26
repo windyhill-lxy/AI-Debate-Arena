@@ -50,6 +50,7 @@ from app.services.debate_mode import (
     needs_user_turn,
     opening_team_discussion_ready,
     participant_speaker_id,
+    prepare_next_online_user_turn,
     user_side_for_mode,
 )
 from app.services.speech_timeout import clear_user_wait, mark_user_wait_start
@@ -70,6 +71,7 @@ from app.services.realtime import manager
 from app.services.ops_events import append_ops_event
 from app.services.opening_evidence_warmup import cancel_opening_evidence_warmup, start_opening_evidence_warmup
 from app.services.opening_evidence import opening_evidence_completed
+from app.services.online_room_lock import online_room_lock
 from app.services.user_turn_flow import accept_user_message, speaker_id_for_user_message
 from app.workflow.debate_graph import debate_graph
 
@@ -945,93 +947,96 @@ async def get_debate_state(
 @router.post("/{debate_id}/participants")
 async def join_debate_participant(debate_id: str, payload: ParticipantJoin, request: Request) -> dict:
     enforce_write_limit(request)
-    doc = await get_debate(debate_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Debate not found")
-    debate = _state_from_doc(doc)
-    if debate.phase == "finished":
-        raise HTTPException(status_code=400, detail="辩论已结束，不能加入联机席位")
+    should_resume = False
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Debate not found")
+        debate = _state_from_doc(doc)
+        if debate.phase == "finished":
+            raise HTTPException(status_code=400, detail="辩论已结束，不能加入联机席位")
 
-    side = payload.side
-    if debate.mode == DebateMode.online_match:
-        if side == "spectator":
-            raise HTTPException(status_code=400, detail="联机模式仅支持辩手席位，请选择正方或反方")
-        if side not in {"affirmative", "negative"}:
-            raise HTTPException(status_code=400, detail="联机模式仅支持辩手席位")
-    position = 0 if side == "spectator" else payload.position
-    if side in {"affirmative", "negative"} and position not in {1, 2, 3, 4}:
-        raise HTTPException(status_code=400, detail="辩手席位必须选择一至四辩")
+        side = payload.side
+        if debate.mode == DebateMode.online_match:
+            if side == "spectator":
+                raise HTTPException(status_code=400, detail="联机模式仅支持辩手席位，请选择正方或反方")
+            if side not in {"affirmative", "negative"}:
+                raise HTTPException(status_code=400, detail="联机模式仅支持辩手席位")
+        position = 0 if side == "spectator" else payload.position
+        if side in {"affirmative", "negative"} and position not in {1, 2, 3, 4}:
+            raise HTTPException(status_code=400, detail="辩手席位必须选择一至四辩")
 
-    participant_id = payload.participant_id or str(uuid4())
-    name = (payload.name or "联机辩手").strip()[:24] or "联机辩手"
-    existing = _find_participant(debate, participant_id)
+        participant_id = payload.participant_id or str(uuid4())
+        name = (payload.name or "联机辩手").strip()[:24] or "联机辩手"
+        existing = _find_participant(debate, participant_id)
 
-    if debate.mode == DebateMode.online_match and not debate.online_ready and not existing:
-        occupied = [
-            p
-            for p in debate.participants
-            if p.connected and p.side in {"affirmative", "negative"}
-        ]
-        if occupied:
-            raise HTTPException(status_code=403, detail="房主尚未完成准备，请稍候…")
-
-    if side != "spectator":
-        occupied = next(
-            (
+        if debate.mode == DebateMode.online_match and not debate.online_ready and not existing:
+            occupied = [
                 p
                 for p in debate.participants
-                if p.id != participant_id and p.connected and p.side == side and p.position == position
-            ),
-            None,
-        )
-        if occupied:
-            raise HTTPException(status_code=409, detail=f"该席位已被 {occupied.name} 占用")
+                if p.connected and p.side in {"affirmative", "negative"}
+            ]
+            if occupied:
+                raise HTTPException(status_code=403, detail="房主尚未完成准备，请稍候…")
 
-    if existing:
-        existing.name = name
-        existing.side = side
-        existing.position = position
-        existing.connected = True
-        existing.last_ip = _client_ip(request)
-        existing.updated_at = utc_now()
-        participant = existing
-    else:
-        participant = OnlineParticipant(
-            id=participant_id,
-            name=name,
-            side=side,
-            position=position,
-            last_ip=_client_ip(request),
-        )
-        debate.participants.append(participant)
+        if side != "spectator":
+            occupied = next(
+                (
+                    p
+                    for p in debate.participants
+                    if p.id != participant_id and p.connected and p.side == side and p.position == position
+                ),
+                None,
+            )
+            if occupied:
+                raise HTTPException(status_code=409, detail=f"该席位已被 {occupied.name} 占用")
 
-    if side != "spectator":
-        _rename_agent_for_participant(debate, participant)
+        if existing:
+            existing.name = name
+            existing.side = side
+            existing.position = position
+            existing.connected = True
+            existing.last_ip = _client_ip(request)
+            existing.updated_at = utc_now()
+            participant = existing
+        else:
+            participant = OnlineParticipant(
+                id=participant_id,
+                name=name,
+                side=side,
+                position=position,
+                last_ip=_client_ip(request),
+            )
+            debate.participants.append(participant)
+
+        if side != "spectator":
+            _rename_agent_for_participant(debate, participant)
+            if (
+                debate.mode == DebateMode.online_match
+                and participant_speaker_id(participant) == debate.active_speaker_id
+                and debate.phase not in {"opening_prep", "free_prep", "closing_prep"}
+            ):
+                debate.awaiting_user = True
+                debate.auto_running = False
+                stop_auto(debate.id)
+
         if (
             debate.mode == DebateMode.online_match
-            and participant_speaker_id(participant) == debate.active_speaker_id
-            and debate.phase not in {"opening_prep", "free_prep", "closing_prep"}
+            and debate.online_ready
+            and side in {"affirmative", "negative"}
+            and not debate.awaiting_user
+            and debate.phase != "finished"
+            and not debate.auto_running
         ):
-            debate.awaiting_user = True
-            debate.auto_running = False
-            stop_auto(debate.id)
+            debate.auto_running = True
 
-    if (
-        debate.mode == DebateMode.online_match
-        and debate.online_ready
-        and side in {"affirmative", "negative"}
-        and not debate.awaiting_user
-        and debate.phase != "finished"
-        and not debate.auto_running
-    ):
-        debate.auto_running = True
+        debate.updated_at = utc_now()
+        debate = await _persist_and_broadcast(debate, "participant_joined")
+        participant_payload = participant.model_dump(mode="json")
+        response_debate = _payload_for_viewer_request(debate, participant_id=participant.id)
+        should_resume = debate.mode == DebateMode.online_match and debate.online_ready and debate.auto_running
 
-    debate.updated_at = utc_now()
-    debate = await _persist_and_broadcast(debate, "participant_joined")
-    participant_payload = participant.model_dump(mode="json")
-    response_debate = _payload_for_viewer_request(debate, participant_id=participant.id)
-
-    if debate.mode == DebateMode.online_match and debate.online_ready and debate.auto_running:
+    if should_resume:
         resume_auto(debate.id)
     return {
         "participant": participant_payload,
@@ -1045,26 +1050,29 @@ async def mark_online_ready(
     request: Request,
     host_token: str = Form(default=""),
 ) -> dict:
-    doc = await get_debate(debate_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Debate not found")
-    debate = _state_from_doc(doc)
-    if debate.mode != DebateMode.online_match:
-        raise HTTPException(status_code=400, detail="仅联机模式可标记就绪")
-    token = host_token or request.headers.get("x-host-token", "")
-    if not verify_host_token(debate_id, token):
-        raise HTTPException(status_code=403, detail="需要房主权限才能开启房间")
-    debate.online_ready = True
-    debate.updated_at = utc_now()
-    if (
-        not debate.awaiting_user
-        and debate.phase != "finished"
-        and not debate.auto_running
-    ):
-        debate.auto_running = True
-    debate = await _persist_and_broadcast(debate, "online_ready")
-    response_debate = _payload_for_viewer_request(debate)
-    if debate.auto_running:
+    should_resume = False
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Debate not found")
+        debate = _state_from_doc(doc)
+        if debate.mode != DebateMode.online_match:
+            raise HTTPException(status_code=400, detail="仅联机模式可标记就绪")
+        token = host_token or request.headers.get("x-host-token", "")
+        if not verify_host_token(debate_id, token):
+            raise HTTPException(status_code=403, detail="需要房主权限才能开启房间")
+        debate.online_ready = True
+        debate.updated_at = utc_now()
+        if (
+            not debate.awaiting_user
+            and debate.phase != "finished"
+            and not debate.auto_running
+        ):
+            debate.auto_running = True
+        debate = await _persist_and_broadcast(debate, "online_ready")
+        response_debate = _payload_for_viewer_request(debate)
+        should_resume = debate.auto_running
+    if should_resume:
         resume_auto(debate.id)
     return {
         "online_ready": True,
@@ -1080,27 +1088,28 @@ async def kick_participant(
     host_token: str = Form(default=""),
 ) -> dict:
     enforce_write_limit(request)
-    doc = await get_debate(debate_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Debate not found")
-    debate = _state_from_doc(doc)
-    if debate.mode != DebateMode.online_match:
-        raise HTTPException(status_code=400, detail="仅多人联机模式支持踢人")
-    token = host_token or request.headers.get("x-host-token", "")
-    if not verify_host_token(debate_id, token):
-        raise HTTPException(status_code=403, detail="主持台权限校验失败，请使用房主设备操作")
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Debate not found")
+        debate = _state_from_doc(doc)
+        if debate.mode != DebateMode.online_match:
+            raise HTTPException(status_code=400, detail="仅多人联机模式支持踢人")
+        token = host_token or request.headers.get("x-host-token", "")
+        if not verify_host_token(debate_id, token):
+            raise HTTPException(status_code=403, detail="主持台权限校验失败，请使用房主设备操作")
 
-    participant = _find_participant(debate, participant_id)
-    if participant is None:
-        raise HTTPException(status_code=404, detail="Participant not found")
-    participant.connected = False
-    participant.updated_at = utc_now()
-    debate.updated_at = utc_now()
-    presence.cancel_pending_offline(debate_id, participant_id)
-    await manager.disconnect_participant(debate_id, participant_id)
-    debate = await _persist_and_broadcast(debate, "participant_kicked")
-    participant_name = participant.name
-    response_debate = _payload_for_viewer_request(debate)
+        participant = _find_participant(debate, participant_id)
+        if participant is None:
+            raise HTTPException(status_code=404, detail="Participant not found")
+        participant.connected = False
+        participant.updated_at = utc_now()
+        debate.updated_at = utc_now()
+        presence.cancel_pending_offline(debate_id, participant_id)
+        await manager.disconnect_participant(debate_id, participant_id)
+        debate = await _persist_and_broadcast(debate, "participant_kicked")
+        participant_name = participant.name
+        response_debate = _payload_for_viewer_request(debate)
     append_ops_event(
         "host_control",
         "主持人移出联机成员",
@@ -1267,71 +1276,80 @@ async def save_user_draft(debate_id: str, payload: UserDraftUpdate, request: Req
 @router.post("/{debate_id}/message")
 async def post_user_message(debate_id: str, payload: UserMessageCreate, request: Request) -> dict:
     enforce_write_limit(request)
-    doc = await get_debate(debate_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Debate not found")
-    debate = _state_from_doc(doc)
+    should_resume = False
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Debate not found")
+        debate = _state_from_doc(doc)
 
-    if debate.mode == DebateMode.ai_autonomous:
-        raise HTTPException(status_code=400, detail="当前为 AI 自主模式，不支持用户发言")
+        if debate.mode == DebateMode.ai_autonomous:
+            raise HTTPException(status_code=400, detail="当前为 AI 自主模式，不支持用户发言")
 
-    participant: OnlineParticipant | None = None
-    if debate.mode == DebateMode.online_match:
-        participant = _find_participant(debate, payload.participant_id)
-        if participant is None or participant.side == "spectator":
-            raise HTTPException(status_code=403, detail="请先通过邀请链接加入一个辩手席位")
-        active_seat = _active_seat(debate)
-        if active_seat is None:
-            raise HTTPException(status_code=400, detail="当前环节不是双方辩手发言")
-        expected_side, expected_position = active_seat
-        if participant.side != expected_side or participant.position != expected_position:
-            raise HTTPException(status_code=409, detail="现在不是你的发言回合")
-        payload.side = participant.side
-        payload.position = participant.position
-        payload.speaker_name = participant.name
-    else:
-        expected = debate_user_side(debate)
-        if expected and payload.side != expected:
-            raise HTTPException(status_code=400, detail=f"当前模式仅允许 {expected} 方发言")
-        if expected:
-            payload.side = expected
-            payload.position = debate_user_position(debate)
-            payload.speaker_name = (debate.user_name or "用户辩手").strip() or "用户辩手"
+        participant: OnlineParticipant | None = None
+        if debate.mode == DebateMode.online_match:
+            participant = _find_participant(debate, payload.participant_id)
+            if participant is None or participant.side == "spectator":
+                raise HTTPException(status_code=403, detail="请先通过邀请链接加入一个辩手席位")
+            if not debate.awaiting_user and needs_user_turn(debate):
+                prepare_next_online_user_turn(debate)
+            active_seat = _active_seat(debate)
+            if active_seat is None:
+                raise HTTPException(status_code=400, detail="当前环节不是双方辩手发言")
+            expected_side, expected_position = active_seat
+            if participant.side != expected_side or participant.position != expected_position:
+                raise HTTPException(status_code=409, detail="现在不是你的发言回合")
+            payload.side = participant.side
+            payload.position = participant.position
+            payload.speaker_name = participant.name
+        else:
+            expected = debate_user_side(debate)
+            if expected and payload.side != expected:
+                raise HTTPException(status_code=400, detail=f"当前模式仅允许 {expected} 方发言")
+            if expected:
+                payload.side = expected
+                payload.position = debate_user_position(debate)
+                payload.speaker_name = (debate.user_name or "用户辩手").strip() or "用户辩手"
 
-    internal_prep = debate.phase in {"opening_prep", "free_prep", "closing_prep"}
-    if internal_prep and not is_user_task_assign_segment(debate) and not is_user_team_discussion_segment(debate):
-        raise HTTPException(status_code=400, detail="当前为队内准备环节，无需用户发言")
-    if not opening_team_discussion_ready(debate):
-        debate.awaiting_user = False
-        debate.auto_running = True
-        clear_user_wait(debate)
-        debate.updated_at = utc_now()
-        await _persist_and_broadcast(debate, "opening_argument_bank_required")
-        resume_auto(debate.id)
-        raise HTTPException(status_code=409, detail="论据库搜集流程尚未完成，请稍后再进入队内讨论")
-    if not needs_user_turn(debate) and not debate.awaiting_user:
-        raise HTTPException(status_code=400, detail="当前环节不需要用户发言")
+        internal_prep = debate.phase in {"opening_prep", "free_prep", "closing_prep"}
+        if internal_prep and not is_user_task_assign_segment(debate) and not is_user_team_discussion_segment(debate):
+            raise HTTPException(status_code=400, detail="当前为队内准备环节，无需用户发言")
+        if not opening_team_discussion_ready(debate):
+            debate.awaiting_user = False
+            debate.auto_running = True
+            clear_user_wait(debate)
+            debate.updated_at = utc_now()
+            await _persist_and_broadcast(debate, "opening_argument_bank_required")
+            should_resume = True
+            resume_auto(debate.id)
+            raise HTTPException(status_code=409, detail="论据库搜集流程尚未完成，请稍后再进入队内讨论")
+        if not needs_user_turn(debate) and not debate.awaiting_user:
+            raise HTTPException(status_code=400, detail="当前环节不需要用户发言")
 
-    payload.content = _normalize_user_content(payload.content)
-    public_debate = not _is_internal_user_turn(debate, payload)
-    if public_debate:
-        ok, reason = enforce_argument_citations(debate, payload.side, payload.content)
-        if not ok:
-            raise HTTPException(status_code=400, detail=reason)
-    speech_review = await review_user_speech(debate, payload, public_debate=public_debate)
-    debate = await _accept_user_message(
-        debate,
-        payload,
-        participant,
-        review=speech_review,
-        public_debate=public_debate,
-    )
-    return _payload_for_viewer_request(
-        debate,
-        viewer_side=payload.side,
-        participant_id=payload.participant_id,
-        viewer_mode=request.query_params.get("viewer_mode"),
-    )
+        payload.content = _normalize_user_content(payload.content)
+        public_debate = not _is_internal_user_turn(debate, payload)
+        if public_debate:
+            ok, reason = enforce_argument_citations(debate, payload.side, payload.content)
+            if not ok:
+                raise HTTPException(status_code=400, detail=reason)
+        speech_review = await review_user_speech(debate, payload, public_debate=public_debate)
+        debate = await _accept_user_message(
+            debate,
+            payload,
+            participant,
+            review=speech_review,
+            public_debate=public_debate,
+        )
+        response = _payload_for_viewer_request(
+            debate,
+            viewer_side=payload.side,
+            participant_id=payload.participant_id,
+            viewer_mode=request.query_params.get("viewer_mode"),
+        )
+        should_resume = debate.mode != DebateMode.online_match or not debate.awaiting_user
+    if should_resume:
+        resume_auto(debate_id)
+    return response
 
 
 @router.post("/{debate_id}/speech-to-text")
@@ -1386,32 +1404,45 @@ async def host_control_debate(
     host_token: str = Form(default=""),
 ) -> dict[str, str]:
     enforce_write_limit(request)
-    doc = await get_debate(debate_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Debate not found")
-    debate = _state_from_doc(doc)
-    if debate.mode != DebateMode.online_match:
-        raise HTTPException(status_code=400, detail="仅多人联机模式支持主持控制")
-    token = host_token or request.headers.get("x-host-token", "")
-    if not verify_host_token(debate_id, token):
-        raise HTTPException(status_code=403, detail="主持台权限校验失败，请使用房主设备操作")
-    if action == "pause":
-        stop_auto(debate_id)
-        debate.auto_running = False
-        debate.updated_at = utc_now()
-        await _persist_and_broadcast(debate, "host_control")
-        append_ops_event("host_control", "主持人暂停自动推进", debate_id=debate_id)
-        return {"status": "paused"}
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Debate not found")
+        debate = _state_from_doc(doc)
+        if debate.mode != DebateMode.online_match:
+            raise HTTPException(status_code=400, detail="仅多人联机模式支持主持控制")
+        token = host_token or request.headers.get("x-host-token", "")
+        if not verify_host_token(debate_id, token):
+            raise HTTPException(status_code=403, detail="主持台权限校验失败，请使用房主设备操作")
+        if action == "pause":
+            stop_auto(debate_id)
+            debate.auto_running = False
+            debate.updated_at = utc_now()
+            await _persist_and_broadcast(debate, "host_control")
+            append_ops_event("host_control", "主持人暂停自动推进", debate_id=debate_id)
+            return {"status": "paused"}
+        if action == "resume":
+            debate.auto_running = True
+            debate.awaiting_user = False
+            debate.updated_at = utc_now()
+            await _persist_and_broadcast(debate, "host_control")
+            append_ops_event("host_control", "主持人恢复自动推进", debate_id=debate_id)
+            should_resume = True
+        elif action == "next":
+            should_resume = False
+        else:
+            raise HTTPException(status_code=400, detail="action 仅支持 pause/resume/next")
     if action == "resume":
-        resume_auto(debate_id)
-        append_ops_event("host_control", "主持人恢复自动推进", debate_id=debate_id)
+        if should_resume:
+            resume_auto(debate_id)
         return {"status": "resumed"}
     if action == "next":
         async def on_event(evt: dict) -> None:
             await _broadcast_debate_event(debate_id, debate, evt)
 
         next_state = await debate_graph.run_turn_streaming(debate, on_event=on_event)
-        await _persist_and_broadcast(next_state, "debate_stepped")
+        async with online_room_lock(debate_id):
+            await _persist_and_broadcast(next_state, "debate_stepped")
         append_ops_event("host_control", "主持人推进下一环节", debate_id=debate_id)
         return {"status": "stepped"}
     raise HTTPException(status_code=400, detail="action 仅支持 pause/resume/next")
@@ -1527,35 +1558,37 @@ async def _restore_participant_on_ws_connect(
     if not participant_id:
         return
     presence.cancel_pending_offline(debate_id, participant_id)
-    doc = await get_debate(debate_id)
-    if doc is None:
-        return
-    debate = _state_from_doc(doc)
-    participant = _find_participant(debate, participant_id)
-    if participant is None:
-        return
-    was_offline = not participant.connected
-    participant.connected = True
-    participant.updated_at = utc_now()
-    debate.updated_at = utc_now()
-    if was_offline:
-        await _persist_and_broadcast(debate, "participant_presence_changed")
-    else:
-        await save_debate(debate.model_dump(mode="json"))
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            return
+        debate = _state_from_doc(doc)
+        participant = _find_participant(debate, participant_id)
+        if participant is None:
+            return
+        was_offline = not participant.connected
+        participant.connected = True
+        participant.updated_at = utc_now()
+        debate.updated_at = utc_now()
+        if was_offline:
+            await _persist_and_broadcast(debate, "participant_presence_changed")
+        else:
+            await save_debate(debate.model_dump(mode="json"))
 
 
 async def _mark_participant_offline(debate_id: str, participant_id: str) -> None:
-    doc = await get_debate(debate_id)
-    if doc is None:
-        return
-    debate = _state_from_doc(doc)
-    participant = _find_participant(debate, participant_id)
-    if participant is None or not participant.connected:
-        return
-    participant.connected = False
-    participant.updated_at = utc_now()
-    debate.updated_at = utc_now()
-    await _persist_and_broadcast(debate, "participant_left")
+    async with online_room_lock(debate_id):
+        doc = await get_debate(debate_id)
+        if doc is None:
+            return
+        debate = _state_from_doc(doc)
+        participant = _find_participant(debate, participant_id)
+        if participant is None or not participant.connected:
+            return
+        participant.connected = False
+        participant.updated_at = utc_now()
+        debate.updated_at = utc_now()
+        await _persist_and_broadcast(debate, "participant_left")
 
 
 @router.websocket("/ws/{debate_id}")

@@ -8,6 +8,7 @@
   "scripts": {
     "start": "electron .",
     "build:win": "electron-builder --win --dir",
+    "build:win:installer": "electron-builder --win nsis",
     "build:win:portable": "electron-builder --win portable"
   },
   "devDependencies": {
@@ -46,6 +47,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "dir",
@@ -58,6 +60,16 @@
     },
     "portable": {
       "artifactName": "AI辩论场-${version}-便携单文件.${ext}"
+    },
+    "nsis": {
+      "artifactName": "AI辩论场-${version}-Windows-安装包.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI辩论场",
+      "deleteAppDataOnUninstall": false
     }
   }
 }

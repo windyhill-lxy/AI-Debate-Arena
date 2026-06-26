@@ -145,7 +145,7 @@ function PromptEditor() {
         value={hintText}
         onChange={(e) => onHintChange(e.target.value)}
         rows={6}
-        style={{ width: "100%", marginTop: 6, padding: 10, borderRadius: 8, fontSize: 13, fontFamily: "monospace", resize: "vertical", border: "1px solid #ddd" }}
+        style={{ width: "100%", marginTop: 6, padding: 10, borderRadius: 8, fontSize: 13, fontFamily: "inherit", resize: "vertical", border: "1px solid #ddd" }}
         placeholder="输入该阶段的 AI 提示词…"
       />
       {msg && <p style={{ fontSize: 13, color: msg.includes("失败") ? "#c00" : "#2a7", marginTop: 4 }}>{msg}</p>}

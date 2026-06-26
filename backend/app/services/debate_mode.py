@@ -69,7 +69,19 @@ def _positions_spoken_in_current_segment(debate: DebateState, side: str) -> set[
 
 
 def _positions_spoken_in_current_team_prep(debate: DebateState, side: str) -> set[int]:
-    return _positions_spoken_in_current_segment(debate, side)
+    positions = _positions_spoken_in_current_segment(debate, side)
+    if debate.phase != "opening_prep" or not is_user_team_discussion_segment(debate):
+        return positions
+    for message in debate.messages:
+        if message.side != side:
+            continue
+        label = message.segment_label or ""
+        if "任务分配" not in label:
+            continue
+        position = _position_from_speaker_id(message.speaker_id, side)
+        if position is not None:
+            positions.add(position)
+    return positions
 
 
 def next_online_participant_for_team_discussion(debate: DebateState) -> OnlineParticipant | None:
@@ -206,10 +218,7 @@ def needs_user_turn(debate: DebateState) -> bool:
             if not opening_team_discussion_ready(debate):
                 return False
             participant = next_online_participant_for_team_discussion(debate)
-            if participant is not None:
-                debate.active_speaker_id = participant_speaker_id(participant) or debate.active_speaker_id
-                return True
-            return False
+            return participant is not None
         return participant_for_active_speaker(debate) is not None
     expected_side = debate_user_side(debate)
     if not expected_side:
@@ -227,6 +236,24 @@ def needs_user_turn(debate: DebateState) -> bool:
             return not _user_spoke_in_current_segment(debate)
         return False
     return bool(user_id and debate.active_speaker_id == user_id)
+
+
+def prepare_next_online_user_turn(debate: DebateState) -> bool:
+    """Move online-match state to the human participant that must speak next."""
+    if debate.mode != DebateMode.online_match:
+        return False
+    internal_team_phase = debate.phase in {"opening_prep", "free_prep", "closing_prep"}
+    if internal_team_phase:
+        if is_user_task_assign_segment(debate):
+            return participant_for_active_speaker(debate) is not None
+        if not opening_team_discussion_ready(debate):
+            return False
+        participant = next_online_participant_for_team_discussion(debate)
+        if participant is None:
+            return False
+        debate.active_speaker_id = participant_speaker_id(participant) or debate.active_speaker_id
+        return True
+    return participant_for_active_speaker(debate) is not None
 
 
 def peek_next_speaker_id(debate: DebateState) -> str | None:

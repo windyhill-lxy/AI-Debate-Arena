@@ -18,8 +18,13 @@ def should_synthesize_tts(debate: DebateState, message: DebateMessage) -> bool:
     if message.phase in {"opening_prep", "free_prep", "closing_prep"}:
         return False
     label = message.segment_label or ""
-    if message.side == "judge" and "输出裁判报告" in label:
-        return True
+    if message.side == "judge":
+        return (
+            message.phase == "pre_match"
+            or message.phase == "post_match"
+            or "裁判警告" in label
+            or "输出裁判报告" in label
+        )
     if message.phase in _enabled_phases():
         return True
     return False

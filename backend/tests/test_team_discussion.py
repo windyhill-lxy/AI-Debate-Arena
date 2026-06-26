@@ -60,7 +60,7 @@ def test_team_discussion_speakers_skip_connected_human_seats() -> None:
     assert [speaker.id for speaker in speakers] == ["aff_1", "aff_3", "aff_4"]
 
 
-def test_team_discussion_speakers_skip_claimed_human_seats_but_not_prior_task_assign() -> None:
+def test_team_discussion_speakers_skip_claimed_human_seats_and_prior_task_assign() -> None:
     from app.services.team_discussion import team_discussion_speakers
 
     debate = _debate()
@@ -83,7 +83,30 @@ def test_team_discussion_speakers_skip_claimed_human_seats_but_not_prior_task_as
 
     speakers = team_discussion_speakers(debate, active)
 
-    assert [speaker.id for speaker in speakers] == ["aff_1", "aff_3", "aff_4"]
+    assert [speaker.id for speaker in speakers] == ["aff_3", "aff_4"]
+
+
+def test_team_discussion_speakers_include_task_assign_only_for_opening_discussion_side() -> None:
+    from app.services.team_discussion import team_discussion_speakers
+
+    debate = _debate()
+    debate.messages.append(
+        DebateMessage(
+            debate_id=debate.id,
+            speaker_id="neg_1",
+            speaker_name="反方一辩",
+            side="negative",
+            content="反方任务分配。",
+            phase="opening_prep",
+            segment_label="立论前准备 · 反方一辩任务分配",
+            speech_flag="ok",
+        )
+    )
+    active = next(agent for agent in debate.agents if agent.id == "aff_1")
+
+    speakers = team_discussion_speakers(debate, active)
+
+    assert [speaker.id for speaker in speakers] == ["aff_1", "aff_2", "aff_3", "aff_4"]
 
 
 @pytest.mark.asyncio

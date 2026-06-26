@@ -1,4 +1,6 @@
 ﻿import { BookOpen, Gavel, Lightbulb, Users, X } from "lucide-react";
+import { useState } from "react";
+import { Check, Copy } from "lucide-react";
 import CitationMarkdownBody from "../../../components/CitationMarkdownBody.jsx";
 import MarkdownBody from "../../../components/MarkdownBody.jsx";
 import {
@@ -7,6 +9,7 @@ import {
   isTeamDiscussion,
   teamDiscussionSide,
 } from "../../../utils/debateDisplay.js";
+import { citationTokenForArgumentId, copyTextToClipboard } from "../argumentCitation.js";
 import { debaterLabel, resolveAvatar } from "../utils.js";
 
 function DockLabel({ icon, label }) {
@@ -32,6 +35,7 @@ export default function DebateRightRail({
   sourceMap,
   onCitationSelect,
 }) {
+  const [copiedArgumentId, setCopiedArgumentId] = useState(null);
   const displayAgent = activeAgent || debate.agents?.[0] || {
     id: "pending",
     name: "等待辩手",
@@ -44,6 +48,16 @@ export default function DebateRightRail({
 
   const toggleTab = (tab) => {
     setActiveTab(activeTab === tab ? null : tab);
+  };
+
+  const copyArgumentCitation = async (id) => {
+    const token = citationTokenForArgumentId(id);
+    if (!token) return;
+    await copyTextToClipboard(token);
+    setCopiedArgumentId(id);
+    window.setTimeout(() => {
+      setCopiedArgumentId((current) => (current === id ? null : current));
+    }, 1200);
   };
 
   const teamEmptyNote = (side, messages, live) => {
@@ -211,7 +225,18 @@ export default function DebateRightRail({
                         {items.map((item) => (
                           <article key={item.id} className="argument-bank-item">
                             <div className="argument-bank-item__head">
-                              <span>{item.id}</span>
+                              <div className="argument-bank-item__id-wrap">
+                                <span className="argument-bank-item__id">{item.id}</span>
+                                <button
+                                  type="button"
+                                  className="argument-bank-item__copy"
+                                  title={`复制引用 ${citationTokenForArgumentId(item.id)}`}
+                                  aria-label={`复制论据引用 ${citationTokenForArgumentId(item.id)}`}
+                                  onClick={() => copyArgumentCitation(item.id)}
+                                >
+                                  {copiedArgumentId === item.id ? <Check size={13} /> : <Copy size={13} />}
+                                </button>
+                              </div>
                               <strong className="argument-bank-item__title">{item.title || "标题生成中"}</strong>
                             </div>
                             <div className="argument-bank-item__content" aria-label="论据内容">

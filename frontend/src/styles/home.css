@@ -1282,6 +1282,16 @@
   object-fit: cover;
 }
 
+.confidence-camera__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+}
+
 .confidence-camera__overlay {
   position: absolute;
   left: 0;
@@ -1306,6 +1316,21 @@
   margin: 0;
   font-size: 12px;
   color: #6a5645;
+}
+
+.confidence-camera__scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.confidence-camera__scores span {
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: rgba(53, 78, 110, 0.08);
+  color: #4f3f33;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .home-confidence__report {

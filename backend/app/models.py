@@ -8,6 +8,16 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 
+LEGACY_AGENT_NAMES_BY_ID: dict[str, tuple[str, str]] = {
+    "neg_3": ("\u51dbZ", "反方三辩"),
+    "neg_4": ("\u6d45\u7b11", "反方四辩"),
+}
+
+LEGACY_AGENT_NAME_REPLACEMENTS: dict[str, str] = {
+    old: new for old, new in LEGACY_AGENT_NAMES_BY_ID.values()
+}
+
+
 class DebateVisibility(str, Enum):
     context = "context"
     realistic = "realistic"
@@ -236,11 +246,25 @@ class DebateState(BaseModel):
     argument_bank_locked: bool = False
     opening_evidence_completed: bool = False
     online_session_id: str | None = None
+    camera_strategy_hints: dict[str, dict[str, Any]] = Field(default_factory=dict)
     free_aff_remaining_sec: int = 240
     free_neg_remaining_sec: int = 240
     free_turn_counter: int = 0
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def model_post_init(self, __context: Any) -> None:
+        for agent in self.agents:
+            old_new = LEGACY_AGENT_NAMES_BY_ID.get(agent.id)
+            if old_new and agent.name == old_new[0]:
+                agent.name = old_new[1]
+        speaker_name_by_id = {agent.id: agent.name for agent in self.agents}
+        for message in self.messages:
+            if message.speaker_name in LEGACY_AGENT_NAME_REPLACEMENTS:
+                message.speaker_name = speaker_name_by_id.get(
+                    message.speaker_id,
+                    LEGACY_AGENT_NAME_REPLACEMENTS[message.speaker_name],
+                )
 
 
 def default_agents() -> list[AgentRole]:
@@ -302,7 +326,7 @@ def default_agents() -> list[AgentRole]:
         ),
         AgentRole(
             id="neg_3",
-            name="凛Z",
+            name="反方三辩",
             side="negative",
             position=3,
             avatar="/src/assets/agents/agent-z.png",
@@ -311,7 +335,7 @@ def default_agents() -> list[AgentRole]:
         ),
         AgentRole(
             id="neg_4",
-            name="浅笑",
+            name="反方四辩",
             side="negative",
             position=4,
             avatar="/src/assets/agents/agent-sweat.png",
@@ -386,7 +410,6 @@ def workflow_template() -> list[WorkflowNode]:
         ("rebuttal_effect_check", "大模型判断驳论有效性", "judge", "判断反驳是否命中对方核心。", "立论/驳论/总结", 8),
         ("free_timer_pause", "暂停计时", "action", "自由辩论前暂停并汇总战场。", "自由辩论前准备", 1),
         ("rag_opponent_predict", "RAG 检索:对方论点预测", "retrieval", "预测对手下一轮可能推进的论点。", "自由辩论前准备", 2),
-        ("team_free_discussion", "队内讨论(自由辩)", "llm", "快速形成攻防口径。", "自由辩论前准备", 3),
         ("attack_defense_adjust", "攻防策略调整", "action", "选择主攻点、防守底线和接力顺序。", "自由辩论前准备", 4),
         ("rag_attack_cases", "RAG 检索:攻防案例库", "retrieval", "检索短句可用案例。", "自由辩论前准备", 5),
         ("free_strategy_check", "大模型判断策略可行性", "router", "判断是否能进入自由辩论。", "自由辩论前准备", 6),
@@ -398,7 +421,6 @@ def workflow_template() -> list[WorkflowNode]:
         ("free_end", "结束自由辩论", "action", "进入总结陈词准备。", "自由辩论环节", 4),
         ("closing_receive_summary", "四辩接收汇总", "action", "四辩接收全场攻防摘要。", "总结陈词前准备", 1),
         ("rag_full_knowledge", "RAG 检索:全场知识点", "retrieval", "汇总可引用事实和战场记录。", "总结陈词前准备", 2),
-        ("team_closing_discussion", "队内讨论(总结)", "llm", "确认总结的胜负标准和价值升华。", "总结陈词前准备", 3),
         ("closing_frame_confirm", "总结框架确认", "action", "锁定四辩总结结构。", "总结陈词前准备", 4),
         ("rag_closing_template", "RAG 检索:总结范本", "retrieval", "检索总结陈词结构范本。", "总结陈词环节", 1),
         ("closing_quality_check", "大模型判断总结质量", "judge", "检查总结是否覆盖全场交锋。", "总结陈词环节", 2),

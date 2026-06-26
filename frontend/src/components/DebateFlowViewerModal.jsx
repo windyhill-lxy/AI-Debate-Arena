@@ -273,7 +273,7 @@ export default function DebateFlowViewerModal({ onClose }) {
         lineColor: "#5a5148",
         secondaryColor: "#eef5ec",
         tertiaryColor: "#f7efe2",
-        fontFamily: "Microsoft YaHei, PingFang SC, Arial, sans-serif",
+        fontFamily: "Google Sans Chinese, sans-serif",
         fontSize: "19px",
       },
       flowchart: {

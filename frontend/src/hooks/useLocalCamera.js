@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
 
 const CAMERA_OWNER_KEY = "ai-debate-camera-owner";
+const CAMERA_ERROR_POPUP_KEY = "ai-debate-camera-error-popup-shown";
 const CAMERA_LEASE_MS = 6000;
 const CAMERA_RELEASE_DELAY_MS = 1500;
 const TAB_CAMERA_ID =
@@ -86,11 +87,33 @@ function releaseCameraLease() {
   }
 }
 
+function canShowCameraPopup() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(CAMERA_ERROR_POPUP_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
+
+function markCameraPopupShown() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(CAMERA_ERROR_POPUP_KEY, "1");
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
 async function openCameraStream() {
   let media = null;
   try {
     media = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      video: {
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+        frameRate: { ideal: 15, max: 15 },
+      },
       audio: false,
     });
   } catch (primaryErr) {
@@ -193,8 +216,9 @@ export function useLocalCamera({ enabled = true, popupOnError = true } = {}) {
       const message = "当前环境不支持摄像头";
       setError(message);
       setHasDevice(false);
-      if (popupOnError && !popupReportedRef.current) {
+      if (popupOnError && !popupReportedRef.current && canShowCameraPopup()) {
         popupReportedRef.current = true;
+        markCameraPopupShown();
         reportError({ title: "摄像头不可用", message, source: "useLocalCamera.unsupported" });
       }
       return null;
@@ -208,8 +232,9 @@ export function useLocalCamera({ enabled = true, popupOnError = true } = {}) {
           const message = "未检测到摄像头设备，可继续辩论";
           setHasDevice(false);
           setError(message);
-          if (popupOnError && !popupReportedRef.current) {
+          if (popupOnError && !popupReportedRef.current && canShowCameraPopup()) {
             popupReportedRef.current = true;
+            markCameraPopupShown();
             reportError({ title: "摄像头不可用", message, source: "useLocalCamera.noDevice" });
           }
           return null;
@@ -231,8 +256,9 @@ export function useLocalCamera({ enabled = true, popupOnError = true } = {}) {
         if (err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError") {
           setHasDevice(false);
         }
-        if (popupOnError && !popupReportedRef.current) {
+        if (popupOnError && !popupReportedRef.current && canShowCameraPopup()) {
           popupReportedRef.current = true;
+          markCameraPopupShown();
           reportError(
             {
               title: "摄像头启动失败",

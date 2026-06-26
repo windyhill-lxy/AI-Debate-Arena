@@ -1,8 +1,10 @@
-param(
+﻿param(
     [string]$PackRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$ProjectRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [switch]$SkipPrepare,
-    [switch]$Portable
+    [switch]$Portable,
+    [switch]$Installer,
+    [switch]$IncludeEnv
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,11 +125,11 @@ if (-not (Test-Path $envExample)) {
     throw "缺少 $envExample"
 }
 Copy-Item -Path $envExample -Destination (Join-Path $appCore ".env.example") -Force
-if (Test-Path $envFile) {
+if ($IncludeEnv -and (Test-Path $envFile)) {
     Copy-Item -Path $envFile -Destination (Join-Path $appCore ".env") -Force
-    Write-Host "  已复制项目 .env 到发行包（含 API 密钥）" -ForegroundColor Gray
+    Write-Host "  已按 -IncludeEnv 复制项目 .env 到发行包（含 API 密钥）" -ForegroundColor Yellow
 } else {
-    Write-Host "  [WARN] 未找到项目 .env，发行包仅含 .env.example" -ForegroundColor Yellow
+    Write-Host "  发行包仅含 .env.example；不会默认打包本机 API 密钥" -ForegroundColor Gray
 }
 
 Write-Step "安装 electron-builder（若未安装）"
@@ -139,7 +141,9 @@ Pop-Location
 Write-Step "运行 electron-builder 生成 exe 与依赖文件"
 $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 Push-Location $electronDir
-if ($Portable) {
+if ($Installer) {
+    & $npm run build:win:installer
+} elseif ($Portable) {
     & $npm run build:win:portable
 } else {
     & $npm run build:win
@@ -163,7 +167,7 @@ $readmeSrc = Join-Path $PackRoot "release\使用说明.txt"
 Copy-Item -Path $readmeSrc -Destination (Join-Path $finalDir "使用说明.txt") -Force
 
 $envFile = Join-Path $ProjectRoot ".env"
-if (Test-Path $envFile) {
+if ($IncludeEnv -and (Test-Path $envFile)) {
     Copy-Item -Path $envFile -Destination (Join-Path $finalDir ".env") -Force
 }
 
@@ -199,6 +203,14 @@ if ($portableExe) {
     Copy-Item -Path $portableExe.FullName -Destination (Join-Path $PackRoot "release\$($portableExe.Name)") -Force
 }
 
+$installerExe = Get-ChildItem -Path $distOut -Filter "AI辩论场-*-Windows-安装包.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($Installer -and -not $installerExe) {
+    throw "未找到安装包输出：$distOut\AI辩论场-*-Windows-安装包.exe"
+}
+if ($installerExe) {
+    Copy-Item -Path $installerExe.FullName -Destination (Join-Path $PackRoot "release\$($installerExe.Name)") -Force
+}
+
 $totalSize = (Get-ChildItem $finalDir -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $sizeMb = [math]::Round($totalSize / 1MB, 1)
 
@@ -209,6 +221,9 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "发行目录：$finalDir" -ForegroundColor White
 Write-Host "主程序：  $finalDir\AI辩论场.exe" -ForegroundColor White
+if ($installerExe) {
+    Write-Host "安装包：  $PackRoot\release\$($installerExe.Name)" -ForegroundColor White
+}
 Write-Host "总体积：  约 ${sizeMb} MB" -ForegroundColor White
 Write-Host ""
 Write-Host "可将整个「AI辩论场」文件夹复制到其他 Windows 电脑直接运行。" -ForegroundColor Gray

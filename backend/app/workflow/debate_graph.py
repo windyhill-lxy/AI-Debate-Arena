@@ -368,8 +368,8 @@ class DebateGraph:
             ("rag_retrieve", "post_match"): "rag_judge_criteria",
             ("opening_evidence_retrieve", "opening_prep"): "opening_evidence_bank",
             ("strategy_plan", "opening_prep"): "team_opening_discussion",
-            ("strategy_plan", "free_prep"): "team_free_discussion",
-            ("strategy_plan", "closing_prep"): "team_closing_discussion",
+            ("strategy_plan", "free_prep"): "free_strategy_check",
+            ("strategy_plan", "closing_prep"): "closing_frame_confirm",
             ("stance_decision", "opening_prep"): "task_reason_check",
             ("stance_decision", "free_prep"): "free_strategy_check",
             ("speech_generate", "free_debate"): "free_alternate_output",
@@ -543,6 +543,15 @@ class DebateGraph:
         sources: list[Source] = state["sources"]
         agent = self._active_agent(debate)
         context = build_ai_debater_context(debate, agent, sources)
+        camera_hint = ""
+        if agent.side in {"affirmative", "negative"}:
+            hint = (debate.camera_strategy_hints or {}).get(agent.side) or {}
+            if hint:
+                camera_hint = (
+                    "\n摄像头表达状态提示（来自对方上一段用户发言）："
+                    f"{hint.get('summary', '')}。"
+                    f"策略要求：{hint.get('hint', '')}"
+                )
         no_repeat_note = ""
         if _is_internal_team_phase(debate.phase):
             no_repeat_note = (
@@ -560,6 +569,7 @@ class DebateGraph:
             f"可参考事实（只作为底层依据，不要逐条复述）：\n{context.source_text}\n"
             f"辩论历史（仅含你方可见内容）：\n{context.visible_history}\n"
             f"发送策略：{'；'.join(context.policy_notes) or '按当前可见性发送数据。'}"
+            f"{camera_hint}"
             f"{no_repeat_note}"
         )
 

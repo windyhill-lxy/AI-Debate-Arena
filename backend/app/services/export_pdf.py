@@ -32,7 +32,27 @@ def _strip_inline_md(text: str) -> str:
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"\*(.+?)\*", r"\1", text)
     text = re.sub(r"`(.+?)`", r"\1", text)
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     return text
+
+
+def _soft_wrap_long_tokens(text: str, *, chunk_size: int = 18, max_chars: int = 1600) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + "..."
+
+    def wrap_token(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if len(token) <= chunk_size:
+            return token
+        return " ".join(token[i : i + chunk_size] for i in range(0, len(token), chunk_size))
+
+    return re.sub(r"\S{%d,}" % (chunk_size + 1), wrap_token, text)
+
+
+def _pdf_safe_text(text: str, *, max_chars: int = 1600) -> str:
+    return _soft_wrap_long_tokens(_strip_inline_md(text), max_chars=max_chars)
 
 
 class _DebatePdf(FPDF):
@@ -97,7 +117,7 @@ class _DebatePdf(FPDF):
             return
         self.set_text_color(44, 39, 34)
         self._set_body_size(11)
-        self.multi_cell(0, 6, _strip_inline_md(text))
+        self.multi_cell(0, 6, _pdf_safe_text(text))
         self.ln(1)
 
     def write_quote(self, text: str) -> None:
@@ -105,7 +125,7 @@ class _DebatePdf(FPDF):
         self.set_draw_color(215, 203, 188)
         self.set_text_color(84, 70, 58)
         self._set_body_size(10)
-        self.multi_cell(0, 6, _strip_inline_md(text), border="L", fill=True)
+        self.multi_cell(0, 6, _pdf_safe_text(text), border="L", fill=True)
         self.ln(2)
         self.set_text_color(44, 39, 34)
 
@@ -116,8 +136,8 @@ class _DebatePdf(FPDF):
     def write_table_row(self, cells: list[str], *, header: bool = False) -> None:
         if len(cells) < 2:
             return
-        label = _strip_inline_md(cells[0].strip())
-        value = " · ".join(_strip_inline_md(cell.strip()) for cell in cells[1:] if cell.strip())
+        label = _pdf_safe_text(cells[0].strip(), max_chars=260)
+        value = " · ".join(_pdf_safe_text(cell.strip()) for cell in cells[1:] if cell.strip())
         if not label and not value:
             return
         if header:
@@ -126,9 +146,18 @@ class _DebatePdf(FPDF):
         else:
             self.set_fill_color(253, 251, 247)
             self.set_text_color(44, 39, 34)
+        self.set_draw_color(215, 203, 188)
         self._set_body_size(9 if header else 10)
-        self.cell(42, 7, label, border=1, fill=True)
-        self.multi_cell(0, 7, value, border=1, fill=True)
+        if label:
+            self.set_x(self.l_margin)
+            self.multi_cell(self.epw, 6, label, border="LTR", fill=True)
+        if value:
+            self.set_x(self.l_margin)
+            self.multi_cell(self.epw, 6, value, border="LRB", fill=True)
+        else:
+            self.set_x(self.l_margin)
+            self.multi_cell(self.epw, 6, " ", border="LRB", fill=True)
+        self.ln(1)
 
 
 def markdown_to_pdf_bytes(markdown_text: str) -> bytes:

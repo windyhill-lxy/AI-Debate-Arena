@@ -62,6 +62,8 @@ def score_user_public_message(
     debate: DebateState,
     message: DebateMessage,
     sources: list[Source],
+    *,
+    include_latest_camera: bool = True,
 ) -> None:
     reasons: list[str] = ["用户发言基础 +1.00"]
     delta = 1.0
@@ -94,10 +96,11 @@ def score_user_public_message(
         delta += penalty
         reasons.append(f"过多比喻/类比（{analogy_count}处）逻辑性弱 {penalty:.2f}")
 
-    conf_delta, conf_reason = confidence_score_adjustment()
-    if conf_delta:
-        delta += conf_delta
-        reasons.append(conf_reason)
+    if include_latest_camera:
+        conf_delta, conf_reason = confidence_score_adjustment()
+        if conf_delta:
+            delta += conf_delta
+            reasons.append(conf_reason)
 
     message.score_reason = "；".join(reasons)
     if message.side in debate.score:

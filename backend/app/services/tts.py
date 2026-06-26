@@ -20,11 +20,11 @@ TOKEN_SAFE_CHAR_CAP = 240  # 约 240 汉字 ≈ 480 token，低于 512 上限
 
 DEBATE_SPEED_HINT = "快语速，辩论现场女声，吐字清晰。"
 
-# 辩论现场只需朗读核心内容，避免长文拆成多段 API 导致界面长时间卡在「合成中」
-MAX_TTS_TOTAL_CHARS = 480
-MAX_TTS_CHUNKS = 3
-TTS_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=45.0, write=15.0, pool=10.0)
-TTS_CHUNK_DEADLINE_SEC = 50.0
+# 辩论现场只朗读核心摘要，避免一条发言拆成多段外部请求导致界面长时间卡在「合成中」。
+MAX_TTS_TOTAL_CHARS = 220
+MAX_TTS_CHUNKS = 1
+TTS_HTTP_TIMEOUT = httpx.Timeout(connect=6.0, read=28.0, write=8.0, pool=6.0)
+TTS_CHUNK_DEADLINE_SEC = 32.0
 
 
 class TTSError(Exception):
@@ -175,6 +175,24 @@ def estimate_playback_seconds(text: str, audio_segment_count: int = 1) -> float:
     return min(90.0, base + extra + 1.5)
 
 
+def _should_retry_shorter_chunk(exc: Exception, chunk: str) -> bool:
+    if not isinstance(exc, TTSError) or len(chunk) <= 120:
+        return False
+    message = str(exc).lower()
+    length_markers = (
+        "too long",
+        "length",
+        "token",
+        "maximum",
+        "max",
+        "600",
+        "exceed",
+        "超过",
+        "过长",
+    )
+    return any(marker in message for marker in length_markers)
+
+
 async def _synthesize_chunk(text: str, profile: TTSProfile, settings) -> dict:
     runtime = load_runtime_settings()
     dashscope_key = runtime.api_keys.get("dashscope") or settings.dashscope_api_key
@@ -288,7 +306,7 @@ async def synthesize_message_audio(
         try:
             part = await _synthesize_chunk(chunk, profile, settings)
         except (TTSError, asyncio.TimeoutError, httpx.HTTPError) as exc:
-            if isinstance(exc, TTSError) and len(chunk) > 120:
+            if _should_retry_shorter_chunk(exc, chunk):
                 smaller = _hard_clamp(chunk, max(120, len(chunk) // 2))
                 logger.warning("TTS retry chunk %s: %s -> %s chars", index, len(chunk), len(smaller))
                 part = await _synthesize_chunk(smaller, profile, settings)

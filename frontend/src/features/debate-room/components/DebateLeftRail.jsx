@@ -108,7 +108,7 @@ export default function DebateLeftRail({
         <DebateFlowViewer variant="dock" />
         <div className="dock-divider" aria-hidden="true" />
         <button
-          className={`dock-btn ${rightActiveTab === "turn" ? "active" : ""}`}
+          className={`dock-btn dock-btn--round ${rightActiveTab === "turn" ? "active" : ""}`}
           onClick={() => toggleRightTab("turn")}
           title={`当前回合：${currentRoundLabel}`}
         >

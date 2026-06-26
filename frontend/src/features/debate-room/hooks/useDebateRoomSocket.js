@@ -203,13 +203,17 @@ export function useDebateRoomSocket({
     },
     onSpeechAudioError: (data) => {
       handlers.current.clearTtsTimeout();
-      handlers.current.setTtsStatus(`语音合成失败：${data.message || "请检查 DashScope 配置"}`);
+      const message = data.message || "请检查 DashScope 配置";
+      handlers.current.setTtsStatus(`语音合成未完成：${message}。辩论将继续进行。`);
       handlers.current.reportError?.({
         title: "语音合成失败",
-        message: data.message || "请检查 DashScope 配置",
+        message,
         code: data.code,
         requestId: data.request_id,
         source: "DebateRoom.socket.speechAudioError",
+      }, {
+        dedupeKey: "debate-room-tts-error",
+        throttleMs: 60000,
       });
     },
     onError: (data) => {

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC
+
 from app.core.time_utils import utc_now
 from app.models import DebateMessage, DebateState, OnlineParticipant, UserMessageCreate, build_schedule_status
 from app.services.argument_bank import add_message_arguments_to_bank_with_ai_titles
@@ -58,7 +60,15 @@ def apply_user_message_scoring(
 ) -> None:
     if review.acceptable:
         if public_debate:
-            score_user_public_message(debate, message, message.sources)
+            use_windowed_camera_score = bool(
+                camera_status is not None and camera_status.running and camera_status.latest_sample
+            )
+            score_user_public_message(
+                debate,
+                message,
+                message.sources,
+                include_latest_camera=not use_windowed_camera_score,
+            )
     else:
         reason = review.reason or "发言不符合赛制要求"
         if not public_debate:
@@ -77,11 +87,14 @@ def apply_user_message_scoring(
         message.score_reason = "；".join(part for part in [message.score_reason, timeout_reason] if part)
 
     if public_debate and camera_status is not None and camera_status.running and camera_status.latest_sample:
+        since_ts = camera_status.session_started_at or None
+        if debate.awaiting_user_since is not None:
+            since_ts = debate.awaiting_user_since.replace(tzinfo=UTC).timestamp() if debate.awaiting_user_since.tzinfo is None else debate.awaiting_user_since.timestamp()
         camera_delta, camera_reason = apply_camera_speech_score(
             debate,
             message.side,
             camera_status.session_log_path,
-            since_ts=camera_status.session_started_at or None,
+            since_ts=since_ts,
         )
         if camera_delta:
             message.score_delta = round((message.score_delta or 0.0) + camera_delta, 2)

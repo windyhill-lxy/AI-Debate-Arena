@@ -227,6 +227,20 @@ button {
   white-space: normal;
 }
 
+.dock-btn--round {
+  min-height: 68px;
+}
+
+.dock-btn--round .dock-btn__avatar {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+}
+
+.dock-btn--round span {
+  line-height: 1.1;
+}
+
 .dock-btn:hover {
   background: rgba(0, 0, 0, 0.05);
   color: #000;
@@ -405,8 +419,16 @@ button {
   line-height: 1.35;
 }
 
-.argument-bank-item__head span {
+.argument-bank-item__id-wrap {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  max-width: 100%;
+}
+
+.argument-bank-item__id {
   display: inline-flex;
   align-items: center;
   min-height: 22px;
@@ -417,6 +439,33 @@ button {
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.argument-bank-item__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(51, 74, 138, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #334a8a;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.argument-bank-item__copy:hover {
+  background: rgba(51, 74, 138, 0.12);
+  border-color: rgba(51, 74, 138, 0.28);
+  transform: translateY(-1px);
+}
+
+.argument-bank-item__copy:focus-visible {
+  outline: 2px solid rgba(51, 74, 138, 0.32);
+  outline-offset: 2px;
 }
 
 .argument-bank-item__title {
@@ -921,6 +970,16 @@ button {
   object-fit: cover;
 }
 
+.confidence-camera__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+}
+
 .confidence-camera__overlay {
   position: absolute;
   left: 0;
@@ -945,6 +1004,21 @@ button {
   margin: 0;
   font-size: 12px;
   color: #6a5645;
+}
+
+.confidence-camera__scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.confidence-camera__scores span {
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: rgba(53, 78, 110, 0.08);
+  color: #4f3f33;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .composer-phase-hint {
@@ -4649,7 +4723,7 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 252, 0), rgba(255, 255, 252, 0.92) 36%);
 }
 
-/* Anthropic-like typography hierarchy */
+/* Local Google Sans typography hierarchy */
 body,
 html,
 #root,
@@ -4704,7 +4778,7 @@ h4,
   font-family: var(--font-ui-sans);
 }
 
-/* Last-mile room fixes: public stage scroll + full Anthropic font coverage */
+/* Last-mile room fixes: public stage scroll + full local font coverage */
 html {
   min-height: 100%;
   overflow-x: hidden;
@@ -5359,7 +5433,7 @@ body {
 .flow-svg-shell .label span,
 .flow-svg-shell foreignObject div {
   color: #5c4d3d !important;
-  font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif !important;
+  font-family: var(--font-ui-sans) !important;
   font-size: 17px !important;
   font-weight: 700 !important;
   line-height: 1.28 !important;

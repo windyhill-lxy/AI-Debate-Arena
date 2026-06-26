@@ -149,8 +149,8 @@ export default function Home() {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("confidence-monitor-enabled") === "1";
   });
-  const [showLandmarks, setShowLandmarks] = useState(true);
-  const [lowPerformance, setLowPerformance] = useState(false);
+  const [showLandmarks, setShowLandmarks] = useState(false);
+  const [lowPerformance, setLowPerformance] = useState(true);
   const [confidenceHint, setConfidenceHint] = useState("");
   const [confidenceStatus, setConfidenceStatus] = useState(null);
   const [confidenceReport, setConfidenceReport] = useState(null);
@@ -279,7 +279,7 @@ export default function Home() {
             return;
           }
         } else if (shouldEnableMonitor && monitor.running) {
-          setConfidenceHint("自信度训练已启动，摄像头窗口会在桌面弹出。");
+          setConfidenceHint("自信度识别已启动，画面会通过网页预览显示。");
         } else if (modeForCreate === "ai_autonomous" && confidenceEnabled) {
           setConfidenceHint("当前是 AI 自主模式，已自动关闭自信度训练。");
         } else if (confidenceEnabled && !monitor.available) {
@@ -487,7 +487,7 @@ export default function Home() {
         <div>
           <h2 className="home-section-title">自信度摄像头训练（可选）</h2>
           <p className="home-hint">
-            摄像头画面会直接显示在网页内，用于训练眼神、手势和姿态表达；不会再要求你切换到额外弹窗。
+            摄像头由后端识别进程统一调用，用于分析眼神、手势、姿态、情绪强度和稳定性；不开启时不会访问摄像头。
           </p>
         </div>
         <label className="home-confidence__toggle">
@@ -525,7 +525,7 @@ export default function Home() {
         {confidenceEnabled && mode !== "ai_autonomous" && (
           <ConfidenceCameraPreview />
         )}
-        <p className="home-hint">进入房间后，右侧栏会继续显示网页内摄像头预览和训练参数。</p>
+        <p className="home-hint">进入房间后，右侧栏会继续显示后端实时画面和多维训练参数。</p>
         {confidenceStatus?.fixed_realtime_hint && (
           <p className="home-hint home-confidence__hint">实时提示：{confidenceStatus.fixed_realtime_hint}</p>
         )}
@@ -541,8 +541,13 @@ export default function Home() {
           <p className="home-hint">
             实时参数：眼神 {Math.round((confidenceStatus.latest_sample.eye || 0) * 100)}% / 手势{" "}
             {Math.round((confidenceStatus.latest_sample.gesture || 0) * 100)}% / 姿态{" "}
-            {Math.round((confidenceStatus.latest_sample.posture || 0) * 100)}%
+            {Math.round((confidenceStatus.latest_sample.posture || 0) * 100)}% / 强度{" "}
+            {Math.round((confidenceStatus.latest_sample.arousal || 0) * 100)}% / 稳定{" "}
+            {Math.round((confidenceStatus.latest_sample.stability || 0) * 100)}%
           </p>
+        )}
+        {confidenceStatus?.opponent_strategy_hint && (
+          <p className="home-hint home-confidence__hint">AI 应对策略：{confidenceStatus.opponent_strategy_hint}</p>
         )}
         <div className="home-confidence__actions">
           <button type="button" className="home-file-btn" onClick={onGenerateConfidenceReport} disabled={reportLoading}>
@@ -561,7 +566,9 @@ export default function Home() {
             与上次对比：自信度 {Math.round((confidenceReport.compare.delta.confidence || 0) * 100)}%，眼神{" "}
             {Math.round((confidenceReport.compare.delta.eye || 0) * 100)}%，手势{" "}
             {Math.round((confidenceReport.compare.delta.gesture || 0) * 100)}%，姿态{" "}
-            {Math.round((confidenceReport.compare.delta.posture || 0) * 100)}%。
+            {Math.round((confidenceReport.compare.delta.posture || 0) * 100)}%，强度{" "}
+            {Math.round((confidenceReport.compare.delta.arousal || 0) * 100)}%，稳定{" "}
+            {Math.round((confidenceReport.compare.delta.stability || 0) * 100)}%。
           </p>
         )}
         {confidenceReport?.llm_report && (

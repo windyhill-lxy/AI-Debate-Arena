@@ -315,11 +315,12 @@ async def test_opening_team_discussion_each_affirmative_debater_uses_argument_ba
 
     monkeypatch.setattr("app.workflow.debate_graph.chat_completion", fake_chat_completion)
 
+    before_len = len(debate.messages)
     result = await debate_graph.run_turn_streaming(debate)
-    added = result.messages[-4:]
+    added = result.messages[before_len:]
 
-    assert [m.speaker_id for m in added] == ["aff_1", "aff_2", "aff_3", "aff_4"]
-    assert len({m.speaker_id for m in added}) == 4
+    assert [m.speaker_id for m in added] == ["aff_2", "aff_3", "aff_4"]
+    assert len({m.speaker_id for m in added}) == 3
     assert all(m.phase == "opening_prep" for m in added)
     assert all("AFF-" in m.content for m in added)
 

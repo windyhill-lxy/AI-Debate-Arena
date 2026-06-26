@@ -1,0 +1,9 @@
+Google Sans Chinese local font bundle
+
+Latin: Google Sans Flex from Google Fonts CSS API.
+Chinese UI subset: Noto Sans SC from Google Fonts CSS API, generated from frontend source Chinese characters.
+Google Fonts FAQ states Google Sans and Google Sans Flex are available under the SIL Open Font License.
+Noto Sans SC is part of Google Fonts / Noto and is used here for Simplified Chinese coverage.
+Chinese subset glyph count: 770
+
+Downloaded on 2026-06-24.

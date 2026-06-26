@@ -21,7 +21,7 @@ class ConfidenceTogglePayload(BaseModel):
     enabled: bool = True
     show_landmarks: bool = False
     camera_index: int = Field(default=0, ge=0, le=10)
-    low_performance: bool = False
+    low_performance: bool = True
 
 
 class ConfidenceReportPayload(BaseModel):
@@ -32,6 +32,7 @@ class ConfidenceReportPayload(BaseModel):
 async def confidence_monitor_status() -> dict:
     status = status_payload(manager.status())
     latest = status.get("latest_sample") or {}
+    visual_summary = status.get("visual_summary") or {}
     if latest:
         has_face = bool(latest.get("has_face"))
         has_pose = bool(latest.get("has_pose"))
@@ -47,7 +48,14 @@ async def confidence_monitor_status() -> dict:
     else:
         status["confidence_reliability"] = "low"
         status["confidence_reliability_hint"] = "暂无样本，无法判断评分可信度。"
-    if latest:
+
+    if visual_summary:
+        status["fixed_realtime_hint"] = (
+            f"{visual_summary.get('summary', '')}；"
+            f"本次表达计分 {float(visual_summary.get('score_delta') or 0):+.2f}。"
+        )
+        status["opponent_strategy_hint"] = visual_summary.get("opponent_strategy_hint", "")
+    elif latest:
         gesture = float(latest.get("gesture", 0.0))
         if gesture < 0.4:
             status["fixed_realtime_hint"] = "手势偏急，建议放慢手部动作并减少抖动。"

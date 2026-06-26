@@ -275,20 +275,6 @@ segments:
     rules: 预测对方自由辩论可能主攻方向。
     seconds: 30
     speaker_side: judge
-  - id: aff_free_team_discussion
-    phase: free_prep
-    label: 自由辩论前准备 · 正方队内讨论(自由辩)
-    rules: 正方整理短句攻防、接力顺序和兜底回应。
-    seconds: 45
-    speaker_side: affirmative
-    speaker_position: 3
-  - id: neg_free_team_discussion
-    phase: free_prep
-    label: 自由辩论前准备 · 反方队内讨论(自由辩)
-    rules: 反方整理短句攻防、接力顺序和兜底回应。
-    seconds: 45
-    speaker_side: negative
-    speaker_position: 3
   - id: free_strategy_adjust
     phase: free_prep
     label: 自由辩论前准备 · 攻防策略调整
@@ -356,20 +342,6 @@ segments:
     rules: 汇总全场可验证事实和关键交锋。
     seconds: 30
     speaker_side: judge
-  - id: aff_closing_discussion
-    phase: closing_prep
-    label: 总结陈词前准备 · 正方队内讨论(总结)
-    rules: 正方确认总结陈词中的胜负标准和价值升华。
-    seconds: 40
-    speaker_side: affirmative
-    speaker_position: 4
-  - id: neg_closing_discussion
-    phase: closing_prep
-    label: 总结陈词前准备 · 反方队内讨论(总结)
-    rules: 反方确认总结陈词中的胜负标准和价值升华。
-    seconds: 40
-    speaker_side: negative
-    speaker_position: 4
   - id: closing_frame
     phase: closing_prep
     label: 总结陈词前准备 · 总结框架确认

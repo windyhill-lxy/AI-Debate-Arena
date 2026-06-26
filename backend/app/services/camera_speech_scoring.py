@@ -5,9 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from app.models import DebateState
+from app.services.visual_behavior_analysis import summarize_visual_samples
 
-SHRUG_BONUS = 0.2
-POINTING_PENALTY = 0.25
 MAX_ABS_DELTA = 0.8
 
 
@@ -36,21 +35,18 @@ def camera_speech_delta(
     since_ts: float | None = None,
     until_ts: float | None = None,
 ) -> tuple[float, str]:
-    events = [row.get("gesture_event") for row in _iter_samples(session_log_path, since_ts=since_ts, until_ts=until_ts) or []]
-    if not events:
+    samples = list(_iter_samples(session_log_path, since_ts=since_ts, until_ts=until_ts) or [])
+    if not samples:
         return 0.0, ""
-    shrug_count = events.count("shrug")
-    pointing_count = events.count("pointing")
-    delta = shrug_count * SHRUG_BONUS - pointing_count * POINTING_PENALTY
-    delta = max(-MAX_ABS_DELTA, min(MAX_ABS_DELTA, delta))
+    summary = summarize_visual_samples(samples)
+    delta = max(-MAX_ABS_DELTA, min(MAX_ABS_DELTA, summary.score_delta))
     if not delta:
-        return 0.0, ""
-    parts: list[str] = []
-    if shrug_count:
-        parts.append(f"摊手表达自然 +{shrug_count * SHRUG_BONUS:.2f}")
-    if pointing_count:
-        parts.append(f"手指指人 {pointing_count} 次 -{pointing_count * POINTING_PENALTY:.2f}")
-    return round(delta, 2), "；".join(parts)
+        return 0.0, summary.short_summary()
+    reason_parts = [summary.short_summary()]
+    if summary.score_reason:
+        reason_parts.append(summary.score_reason)
+    reason_parts.append(f"对方策略建议：{summary.opponent_strategy_hint}")
+    return round(delta, 2), "；".join(reason_parts)
 
 
 def apply_camera_speech_score(
@@ -62,7 +58,22 @@ def apply_camera_speech_score(
     until_ts: float | None = None,
 ) -> tuple[float, str]:
     delta, reason = camera_speech_delta(session_log_path, since_ts=since_ts, until_ts=until_ts)
+    samples = list(_iter_samples(session_log_path, since_ts=since_ts, until_ts=until_ts) or [])
+    summary = summarize_visual_samples(samples)
+    if summary.sample_count:
+        opponent_side = "negative" if side == "affirmative" else "affirmative"
+        debate.camera_strategy_hints[opponent_side] = {
+            "mode": summary.strategy_mode,
+            "hint": summary.opponent_strategy_hint,
+            "summary": summary.short_summary(),
+            "dimensions": summary.dimensions,
+            "gesture_counts": summary.gesture_counts,
+            "delivery": summary.delivery,
+            "emotion": summary.emotion,
+            "confidence_label": summary.confidence_label,
+            "score_delta": summary.score_delta,
+        }
     if not delta:
-        return 0.0, ""
+        return 0.0, reason if summary.sample_count else ""
     debate.score[side] = debate.score.get(side, 0.0) + delta
     return delta, reason

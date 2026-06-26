@@ -71,3 +71,25 @@ def test_export_pdf_returns_pdf_bytes() -> None:
     pdf = markdown_to_pdf_bytes("# 导出测试\n\n- 条目一\n\n正文段落。")
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 500
+
+
+def test_export_pdf_handles_long_markdown_table_cells() -> None:
+    from app.services.export_pdf import markdown_to_pdf_bytes
+
+    long_label = "这是一个非常非常非常非常非常非常非常非常非常长的第一列表格标题"
+    long_url = "https://example.com/" + "deep-path-segment-" * 32
+    md = "\n".join(
+        [
+            "# 长表格导出测试",
+            "",
+            "| 指标 | 内容 |",
+            "| --- | --- |",
+            f"| {long_label} | 普通说明 |",
+            f"| {long_url} | 连续 URL 也应该可以被 PDF 排版 |",
+        ]
+    )
+
+    pdf = markdown_to_pdf_bytes(md)
+
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf) > 500

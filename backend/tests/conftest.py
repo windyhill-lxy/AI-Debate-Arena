@@ -88,6 +88,11 @@ def mock_llm_stream() -> None:
             return_value="内部草稿：争点与论据。",
         ),
         patch(
+            "app.services.opening_evidence.chat_completion",
+            new_callable=AsyncMock,
+            return_value='{"items":[]}',
+        ),
+        patch(
             "app.workflow.debate_graph.chat_completion_stream",
             side_effect=lambda *_a, **_k: _fake_stream(),
         ),

@@ -180,9 +180,9 @@ export function useDebateRoom() {
       clearTtsTimeout();
       ttsTimeoutRef.current = setTimeout(() => {
         setTtsStatus(
-          `${speakerName || "AI 辩手"} 语音合成超时：请检查网络与 DashScope 配置，辩论将继续进行。`,
+          `${speakerName || "AI 辩手"} 语音仍在合成中：网络较慢时会稍久，辩论将继续进行。`,
         );
-      }, health?.aliyun_tts_enabled === false ? 15000 : 28000);
+      }, health?.aliyun_tts_enabled === false ? 15000 : 38000);
     },
     [clearTtsTimeout, health?.aliyun_tts_enabled],
   );

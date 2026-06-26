@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 frontend/.env*
+tools/tunnel-settings.json
 
 # Portable runtimes and dependencies
 tools/python/
