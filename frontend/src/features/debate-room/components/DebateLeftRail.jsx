@@ -269,6 +269,10 @@ export default function DebateLeftRail({
                       })}
                     </div>
                     <p className="visibility-hint">{VISIBILITY_MODES.find((m) => m.id === visibility)?.hint}</p>
+                    <p className="visibility-hint">
+                      AI速度：{debate.rag_review_mode === "full" ? "完整逐轮复核" : "必要复核"} · 队内讨论
+                      {debate.team_discussion_enabled ? "开启" : "关闭"}
+                    </p>
                   </section>
                 </>
               )}

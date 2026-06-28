@@ -1,6 +1,7 @@
-import { PHASE_NAMES, portraitById, demoAgents } from "../../data/agents";
+import { PHASE_NAMES, portraitById, demoAgents } from "../../data/agents.js";
 import { MODE_LABELS } from "./constants.js";
 import { agentSeatLabel, debaterPositionLabel } from "../../utils/debateDisplay.js";
+import { onlineRoomCanAutoStart } from "./progressControl.js";
 
 export { MODE_LABELS };
 
@@ -144,6 +145,9 @@ export function getOnlineStatusMessage(debate, participant = null) {
     if (needsUserTurn(debate)) {
       return "正在等待对方辩手发言。";
     }
+    if (!onlineRoomCanAutoStart(debate)) {
+      return "联机房间已开放，等待至少两位辩手加入后开始。";
+    }
     if (debate.auto_running) return "AI 回合自动进行中…";
     return "待机中，等待下一环节。";
   }
@@ -185,7 +189,7 @@ export function formatPipelineHint(hint) {
     return hint.detail || `${seat} 正在预热 ${hint.sourcesCount || 0} 条资料。`;
   }
   if (hint.type === "reflection_done") {
-    return hint.detail || "反思定稿完成。";
+    return hint.detail || "发言直出完成。";
   }
   return hint.detail || hint.nodeLabel || "";
 }

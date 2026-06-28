@@ -7,7 +7,9 @@ import {
   FileText,
   Gavel,
   History,
+  Maximize2,
   Mic,
+  Minimize2,
   PenLine,
   Loader2,
   Send,
@@ -62,6 +64,8 @@ export default function DebateCenterStage({
   selectedCitation: controlledSelectedCitation,
   onCitationSelect: controlledOnCitationSelect,
   onCitationClose,
+  headerCollapsed = false,
+  onToggleHeaderCollapsed,
 }) {
   const [localSelectedCitation, setLocalSelectedCitation] = useState(null);
   const localSourceMap = useMemo(
@@ -203,28 +207,43 @@ export default function DebateCenterStage({
 
   return (
     <section
-      className={`center-stage center-stage--speech-first${showMatchSummary ? " center-stage--with-summary" : ""}`}
+      className={`center-stage center-stage--speech-first${showMatchSummary ? " center-stage--with-summary" : ""}${headerCollapsed ? " center-stage--header-collapsed" : ""}`}
     >
       <header className="center-stage__meta">
         <div className="center-stage__topic">
           <p className="eyebrow">AI Debate Arena</p>
           <h2>{debate.topic}</h2>
-          <p className="transcript-status">{status}</p>
-          {ownSeatLabel && <p className="own-seat-badge">我的席位：{ownSeatLabel}</p>}
+          {!headerCollapsed && (
+            <>
+              <p className="transcript-status">{status}</p>
+              {ownSeatLabel && <p className="own-seat-badge">我的席位：{ownSeatLabel}</p>}
+            </>
+          )}
         </div>
         <div className="center-stage__tools">
-          <div className="score-card score-card--prominent score-card--compact">
-            <div className="score-side score-side--aff">
-              <span className="score-label">正方</span>
-              <strong className="score-value">{debate.score.affirmative.toFixed(1)}</strong>
+          {!headerCollapsed && (
+            <div className="score-card score-card--prominent score-card--compact">
+              <div className="score-side score-side--aff">
+                <span className="score-label">正方</span>
+                <strong className="score-value">{debate.score.affirmative.toFixed(1)}</strong>
+              </div>
+              <span className="score-vs">VS</span>
+              <div className="score-side score-side--neg">
+                <span className="score-label">反方</span>
+                <strong className="score-value">{debate.score.negative.toFixed(1)}</strong>
+              </div>
             </div>
-            <span className="score-vs">VS</span>
-            <div className="score-side score-side--neg">
-              <span className="score-label">反方</span>
-              <strong className="score-value">{debate.score.negative.toFixed(1)}</strong>
-            </div>
-          </div>
+          )}
           <div className="center-stage__exports">
+            <button
+              type="button"
+              className="export-md-btn export-md-btn--icon"
+              onClick={onToggleHeaderCollapsed}
+              title={headerCollapsed ? "展开上方信息" : "收起上方信息"}
+              aria-label={headerCollapsed ? "展开上方信息" : "收起上方信息"}
+            >
+              {headerCollapsed ? <Maximize2 size={15} /> : <Minimize2 size={15} />}
+            </button>
             <button type="button" className="export-md-btn" onClick={exportFullHistory}>
               <Download size={14} /> 导出
             </button>

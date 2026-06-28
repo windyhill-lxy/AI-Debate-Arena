@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "vite build",
-    "test": "node src/features/debate-room/argumentCitation.test.mjs && node src/features/debate-room/onlineWaitingBanner.test.mjs && node src/styles/fonts.test.mjs && node src/cameraPerformance.test.mjs",
+    "test": "node src/features/debate-room/argumentCitation.test.mjs && node src/features/debate-room/onlineWaitingBanner.test.mjs && node src/features/debate-room/onlineProgressControl.test.mjs && node src/features/debate-room/ttsControl.test.mjs && node src/features/debate-room/factBadge.test.mjs && node src/features/debate-room/speechInputAutoSubmit.test.mjs && node src/features/debate-room/headerCollapseButton.test.mjs && node src/hooks/audioQueueControl.test.mjs && node src/components/confidenceCameraPreview.test.mjs && node src/hooks/publicTunnelClient.test.mjs && node src/utils/publicInviteTunnel.test.mjs && node src/styles/fonts.test.mjs && node src/cameraPerformance.test.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test:e2e": "echo 请使用项目根目录 test-e2e.bat（无需 Node） && exit 1",
     "test:e2e:node": "playwright test"

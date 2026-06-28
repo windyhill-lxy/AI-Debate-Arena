@@ -134,7 +134,7 @@ export default function DebateRightRail({
               )}
               {activeTab === "strategy" && visibility === "context" && (
                 <section className="panel strategy-panel">
-                  <p className="empty-note">复盘视角：展示 AI 辩手的内部策略与反思草稿，不进入主舞台。</p>
+                  <p className="empty-note">复盘视角：展示 AI 辩手的内部策略备注，不进入主舞台。</p>
                   <div className="strategy-note-list">
                     {aiStrategyNotes.length === 0 && (
                       <p className="empty-note">暂无策略备注，等待 AI 发言后生成。</p>

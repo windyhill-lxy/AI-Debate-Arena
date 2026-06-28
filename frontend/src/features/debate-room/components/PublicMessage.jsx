@@ -2,37 +2,14 @@ import { Volume2 } from "lucide-react";
 import CitationMarkdownBody from "../../../components/CitationMarkdownBody.jsx";
 import { displaySpeakerName } from "../../../utils/debateDisplay.js";
 import { getAgent, phaseName, resolveAvatar, sideName } from "../utils.js";
+import { factBadgeForMessage } from "../factBadge.js";
 
-function FactCheckBadge({ message }) {
-  const risk = message.hallucination_risk;
-  const srcCount = message.sources?.length || 0;
-  const isAI = message.side === "affirmative" || message.side === "negative" || message.side === "judge";
-  if (!isAI || (!risk && srcCount === 0)) return null;
-
-  if (srcCount > 0) {
-    return (
-      <div className="fact-badge fact-badge--low" title="已通过RAG向量库检索核实">
-        已RAG核实 {srcCount} 条
-      </div>
-    );
-  }
-  if (risk === "high") {
-    return (
-      <div className="fact-badge fact-badge--high" title="含数据或引用但无来源支撑，可能存在幻觉">
-        含数据待核实
-      </div>
-    );
-  }
-  if (risk === "medium") {
-    return (
-      <div className="fact-badge fact-badge--medium" title="含数字但无RAG来源支撑">
-        含数字未引用
-      </div>
-    );
-  }
+function FactCheckBadge({ message, debate }) {
+  const badge = factBadgeForMessage(message, debate);
+  if (!badge) return null;
   return (
-    <div className="fact-badge fact-badge--none" title="发言未引用外部资料">
-      未引用资料
+    <div className={`fact-badge fact-badge--${badge.tone}`} title={badge.title}>
+      {badge.text}
     </div>
   );
 }
@@ -73,7 +50,7 @@ export default function PublicMessage({ message, debate, audioByMessage, playMes
           sourceMap={sourceMap}
           onCitationSelect={onCitationSelect}
         />
-        <FactCheckBadge message={message} />
+        <FactCheckBadge message={message} debate={debate} />
         {audioUrls.length > 0 && (
           <button type="button" className="message-audio message-audio--queued" onClick={replayAudio}>
             <Volume2 size={14} />

@@ -46,6 +46,8 @@ export function createLocalDebate(topic, mode) {
     mode: mode || "ai_autonomous",
     visibility: "context",
     timing: "limited",
+    team_discussion_enabled: false,
+    rag_review_mode: "essential",
     awaiting_user: false,
     auto_running: false,
     phase: "pre_match",

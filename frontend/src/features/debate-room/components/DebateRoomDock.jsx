@@ -1,6 +1,7 @@
 import { Download, Pause, Play, SkipForward, Square, Volume2, Zap } from "lucide-react";
 import DebateProgressBar from "../../../components/debate/DebateProgressBar.jsx";
 import { displaySpeakerName } from "../../../utils/debateDisplay.js";
+import { canResumeDebate } from "../progressControl.js";
 
 export default function DebateRoomDock({
   debate,
@@ -26,11 +27,7 @@ export default function DebateRoomDock({
   exportFullHistory,
   streaming,
 }) {
-  const showResume =
-    !isLocal &&
-    debate.phase !== "finished" &&
-    !debate.auto_running &&
-    (!awaitingUser || (speechInputState && !speechInputState.canSubmit));
+  const showResume = canResumeDebate({ debate, awaitingUser, speechInputState, isLocal });
   const showAudioControls = !audioDisabled || currentAudio || audioQueueLength > 0 || audioPaused;
 
   return (
