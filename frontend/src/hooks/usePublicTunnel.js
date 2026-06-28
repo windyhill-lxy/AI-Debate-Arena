@@ -2,20 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "../utils/apiBase.js";
 import { useErrorDialog } from "../components/ErrorDialogProvider.jsx";
 import { parseHttpErrorBody } from "../utils/httpError.js";
-
-const FETCH_TIMEOUT_MS = 30000;
-
-async function fetchJson(url, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    if (!res.ok) throw parseHttpErrorBody(await res.text(), res);
-    return res.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
+import { fetchTunnelJson, TUNNEL_START_TIMEOUT_MS } from "./publicTunnelClient.js";
 
 export function usePublicTunnel(pollMs = 10000) {
   const [status, setStatus] = useState({
@@ -32,7 +19,7 @@ export function usePublicTunnel(pollMs = 10000) {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await fetchJson(`${API_BASE}/api/tunnel/status`, { timeoutMs: 5000 });
+      const data = await fetchTunnelJson(`${API_BASE}/api/tunnel/status`, { timeoutMs: 5000, action: "status" });
       setStatus(data);
       if (typeof window !== "undefined") {
         window.__DEBATE_TUNNEL_URL__ = data.running && data.url ? data.url : "";
@@ -61,7 +48,7 @@ export function usePublicTunnel(pollMs = 10000) {
 
   const verify = useCallback(async () => {
     try {
-      const data = await fetchJson(`${API_BASE}/api/tunnel/verify`, { timeoutMs: 8000 });
+      const data = await fetchTunnelJson(`${API_BASE}/api/tunnel/verify`, { timeoutMs: 8000, action: "verify" });
       setStatus(data);
       if (typeof window !== "undefined") {
         window.__DEBATE_TUNNEL_URL__ = data.running && data.url ? data.url : "";
@@ -88,9 +75,10 @@ export function usePublicTunnel(pollMs = 10000) {
     setBusy(true);
     try {
       const query = force ? "?force=true" : "";
-      const data = await fetchJson(`${API_BASE}/api/tunnel/start${query}`, {
+      const data = await fetchTunnelJson(`${API_BASE}/api/tunnel/start${query}`, {
         method: "POST",
-        timeoutMs: 35000,
+        timeoutMs: TUNNEL_START_TIMEOUT_MS,
+        action: "start",
       });
       setStatus(data);
       if (typeof window !== "undefined") {

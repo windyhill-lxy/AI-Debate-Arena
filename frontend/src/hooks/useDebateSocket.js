@@ -209,6 +209,7 @@ export function useDebateSocket(debateId, handlers, options = {}) {
           if (ev === "speech_end") h.onSpeechEnd?.(data);
           if (ev === "speech_audio_start") h.onSpeechAudioStart?.(data);
           if (ev === "speech_audio_progress") h.onSpeechAudioProgress?.(data);
+          if (ev === "speech_audio_delta") h.onSpeechAudioDelta?.(data);
           if (ev === "speech_audio") h.onSpeechAudio?.(data);
           if (ev === "speech_audio_error") h.onSpeechAudioError?.(data);
           if (ev === "error") h.onError?.(data);
