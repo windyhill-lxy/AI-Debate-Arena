@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../utils/apiBase.js";
 
 const STATUS_REFRESH_MS = 3500;
-const PREVIEW_REFRESH_MS = 2200;
+const PREVIEW_REFRESH_MS = 1000;
 
 function normalizeMonitorError(message) {
   if (!message) return "";
@@ -41,13 +41,27 @@ function gestureText(counts = {}) {
 /**
  * 自信度识别预览只消费后端摄像头帧，避免浏览器和后端同时抢占摄像头。
  */
-export default function ConfidenceCameraPreview({ enabled = true, className = "", compact = false }) {
+export default function ConfidenceCameraPreview({
+  enabled = true,
+  className = "",
+  compact = false,
+  onStart = null,
+  onStop = null,
+  busy = false,
+  externalStatus = null,
+}) {
   const imgRef = useRef(null);
   const [monitorStatus, setMonitorStatus] = useState(null);
   const [statusReady, setStatusReady] = useState(false);
   const [inlineError, setInlineError] = useState("");
   const running = Boolean(monitorStatus?.running);
   const useBackendPreview = enabled && statusReady && running && !monitorStatus?.last_error;
+
+  useEffect(() => {
+    if (!externalStatus) return;
+    setMonitorStatus(externalStatus);
+    setStatusReady(true);
+  }, [externalStatus]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -142,9 +156,26 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
       {!compact && (
         <div className="confidence-camera__header">
           <span>自信度摄像头</span>
-          <span className={`confidence-camera__badge ${running ? "on" : "off"}`}>
-            {running ? "分析中" : "未启动"}
-          </span>
+          <div className="confidence-camera__header-actions">
+            <span className={`confidence-camera__badge ${running ? "on" : "off"}`}>
+              {busy ? "启动中" : running ? "分析中" : "未启动"}
+            </span>
+            {onStart && !running && (
+              <button type="button" className="confidence-camera__action" onClick={onStart} disabled={busy}>
+                启动摄像头
+              </button>
+            )}
+            {onStart && running && (
+              <button type="button" className="confidence-camera__action" onClick={onStart} disabled={busy}>
+                重启
+              </button>
+            )}
+            {onStop && running && (
+              <button type="button" className="confidence-camera__action muted" onClick={onStop} disabled={busy}>
+                停止
+              </button>
+            )}
+          </div>
         </div>
       )}
       <div className="confidence-camera__viewport">

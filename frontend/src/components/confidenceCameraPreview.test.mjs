@@ -12,3 +12,5 @@ assert.match(source, /动作/, "camera preview should show gesture/action data")
 assert.match(source, /计分预估/, "camera preview should show live scoring estimate");
 assert.match(source, /发言结束后计入本轮分数/, "camera preview should explain that camera data is scored after speech");
 assert.match(source, /confidence-camera__advice/, "camera preview should render realtime advice");
+assert.match(source, /onStart/, "camera preview should expose a start action when the backend monitor is stopped");
+assert.match(source, /启动摄像头/, "camera preview should label the start action clearly");

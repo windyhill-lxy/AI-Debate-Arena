@@ -160,6 +160,7 @@ export default function Home() {
   const [confidenceReport, setConfidenceReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [cameraDiag, setCameraDiag] = useState("");
+  const [confidenceBusy, setConfidenceBusy] = useState(false);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/debates/schedules`)
@@ -192,6 +193,81 @@ export default function Home() {
       clearInterval(timer);
     };
   }, []);
+
+  async function refreshConfidenceStatus() {
+    try {
+      const status = await fetchConfidenceStatus();
+      setConfidenceStatus(status);
+      return status;
+    } catch (error) {
+      setConfidenceStatus(null);
+      throw error;
+    }
+  }
+
+  async function startConfidenceMonitor() {
+    if (mode === "ai_autonomous") return null;
+    setConfidenceBusy(true);
+    setConfidenceHint("正在启动摄像头识别…");
+    try {
+      const monitor = await toggleConfidenceMonitor(true, { showLandmarks, lowPerformance });
+      setConfidenceStatus(monitor);
+      if (monitor.running) {
+        setConfidenceHint("摄像头识别已启动，画面约每秒刷新一次。");
+        return monitor;
+      }
+      const message = monitor.last_error || `摄像头未启动：缺少依赖 ${monitor.missing_dependencies?.join(", ") || "未知"}`;
+      setConfidenceHint(message);
+      reportError({
+        title: "摄像头启动失败",
+        message,
+        source: "Home.startConfidenceMonitor",
+      });
+      return monitor;
+    } catch (error) {
+      const message = error.message || "请确认后端已启动，并检查摄像头权限。";
+      setConfidenceHint(`摄像头启动失败：${message}`);
+      reportError({
+        title: "摄像头启动失败",
+        message,
+        code: error.code || error.status,
+        requestId: error.requestId,
+        details: error.details,
+        source: "Home.startConfidenceMonitor",
+      });
+      return null;
+    } finally {
+      setConfidenceBusy(false);
+    }
+  }
+
+  async function stopConfidenceMonitor() {
+    setConfidenceBusy(true);
+    try {
+      const monitor = await toggleConfidenceMonitor(false, { showLandmarks, lowPerformance });
+      setConfidenceStatus(monitor);
+      setConfidenceHint("摄像头识别已停止。");
+      return monitor;
+    } catch (error) {
+      const message = error.message || "停止摄像头失败。";
+      setConfidenceHint(message);
+      reportError({
+        title: "摄像头停止失败",
+        message,
+        source: "Home.stopConfidenceMonitor",
+      });
+      return null;
+    } finally {
+      setConfidenceBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (setupStep !== 3 || !confidenceEnabled || mode === "ai_autonomous") return;
+    if (confidenceStatus?.running || confidenceBusy) return;
+    startConfidenceMonitor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setupStep, confidenceEnabled, mode, showLandmarks, lowPerformance]);
 
   async function onMaterialFile(event) {
     const file = event.target.files?.[0];
@@ -274,7 +350,10 @@ export default function Home() {
         : null;
       const shouldEnableMonitor = modeForCreate !== "ai_autonomous" && confidenceEnabled;
       try {
-        const monitor = await toggleConfidenceMonitor(shouldEnableMonitor, { showLandmarks, lowPerformance });
+        const monitor =
+          shouldEnableMonitor && confidenceStatus?.running
+            ? confidenceStatus
+            : await toggleConfidenceMonitor(shouldEnableMonitor, { showLandmarks, lowPerformance });
         if (shouldEnableMonitor && !monitor.running && monitor.last_error) {
           setConfidenceHint(`启动失败：${monitor.last_error}`);
           const confirmEnter = window.confirm(`自信度摄像头训练启动失败：\n${monitor.last_error}\n\n是否不开启摄像头继续进入房间？`);
@@ -346,7 +425,7 @@ export default function Home() {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videos = devices.filter((d) => d.kind === "videoinput");
-      const status = await fetchConfidenceStatus().catch(() => null);
+      const status = await refreshConfidenceStatus().catch(() => null);
       setCameraDiag(
         `检测到 ${videos.length} 个摄像头设备；训练状态：${status?.running ? "运行中" : "未运行"}；` +
           `可信度：${status?.confidence_reliability || "unknown"}`,
@@ -501,7 +580,11 @@ export default function Home() {
             type="checkbox"
             checked={confidenceEnabled}
             disabled={mode === "ai_autonomous"}
-            onChange={(e) => setConfidenceEnabled(e.target.checked)}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setConfidenceEnabled(checked);
+              if (!checked) stopConfidenceMonitor();
+            }}
           />
           <span>
             <Camera size={15} /> 进入辩论室时启用自信度训练
@@ -529,7 +612,12 @@ export default function Home() {
           <p className="home-hint home-confidence__hint">AI 自主辩论没有人类发言，摄像头训练不可启用，也不会影响计分。</p>
         )}
         {confidenceEnabled && mode !== "ai_autonomous" && (
-          <ConfidenceCameraPreview />
+          <ConfidenceCameraPreview
+            onStart={startConfidenceMonitor}
+            onStop={stopConfidenceMonitor}
+            busy={confidenceBusy}
+            externalStatus={confidenceStatus}
+          />
         )}
         <p className="home-hint">进入房间后，右侧栏会继续显示后端实时画面和多维训练参数。</p>
         {confidenceStatus?.fixed_realtime_hint && (

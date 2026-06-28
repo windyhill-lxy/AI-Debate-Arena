@@ -64,7 +64,7 @@ def camera_capture_profile(*, low_performance: bool) -> CameraCaptureProfile:
 
 
 def preview_write_interval(*, low_performance: bool) -> float:
-    return 2.2 if low_performance else 0.5
+    return 1.0 if low_performance else 0.5
 
 
 class ConfidenceMonitor:

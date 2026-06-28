@@ -232,7 +232,7 @@ def test_low_performance_camera_profile_is_low_frequency_and_lightweight() -> No
     assert profile.fps <= 8
     assert profile.detect_every_frames >= 6
     assert profile.jpeg_quality <= 58
-    assert preview_write_interval(low_performance=True) >= 2.0
+    assert preview_write_interval(low_performance=True) == pytest.approx(1.0)
 
 
 def test_camera_preview_frame_does_not_burn_scores_into_video() -> None:
