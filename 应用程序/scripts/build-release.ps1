@@ -77,14 +77,14 @@ Write-Step "复制后端 (backend/) — 约 1–2 分钟"
 $backendSrc = Join-Path $ProjectRoot "backend"
 $backendDst = Join-Path $appCore "backend"
 Invoke-Robocopy -Source $backendSrc -Destination $backendDst -ExcludeDirs @(
-    "tests", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"
+    "tests", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".agents"
 )
 
 Write-Step "复制便携 Python (tools/python/) — 约 3–8 分钟，体积较大"
 $pythonSrc = Join-Path $ProjectRoot "tools\python"
 $pythonDst = Join-Path $appCore "python"
 Invoke-Robocopy -Source $pythonSrc -Destination $pythonDst -ExcludeDirs @(
-    "__pycache__", "test", "tests"
+    "__pycache__", "test", "tests", ".agents"
 )
 
 Write-Step "复制前端静态资源"

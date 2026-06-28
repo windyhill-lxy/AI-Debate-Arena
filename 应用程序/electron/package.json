@@ -1,7 +1,7 @@
 {
   "name": "ai-debate-desktop",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI 辩论场桌面程序",
   "author": "AI Debate Arena",
   "main": "main.cjs",
@@ -33,7 +33,9 @@
       {
         "from": "../release/staging/app-core",
         "to": "app-core",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "extraFiles": [
@@ -51,7 +53,9 @@
       "target": [
         {
           "target": "dir",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "AI辩论场-${version}-win-${arch}.${ext}",
