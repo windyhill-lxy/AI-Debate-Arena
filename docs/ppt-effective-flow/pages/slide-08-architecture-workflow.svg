@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-label="PPT 8｜前后端、工作流与数据层协同">
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="rgba(104,86,64,0.075)" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 18 18" refX="15" refY="9" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M2 2 L16 9 L2 16 Z" fill="#5a5148"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#32261c" flood-opacity="0.1"/>
+    </filter>
+    <style>
+      svg { background: #fbf7ef; font-family: "Microsoft YaHei", "Noto Sans SC", "PingFang SC", Arial, sans-serif; }
+      .title { fill: #211b12; font-size: 34px; font-weight: 850; letter-spacing: 0; }
+      .subtitle { fill: #6f5a47; font-size: 17px; font-weight: 650; letter-spacing: 0; }
+      .legendText { fill: #211b12; font-size: 15px; font-weight: 800; }
+      .node { filter: url(#shadow); }
+      .nodeText { box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #5c4d3d; line-height: 1.25; overflow-wrap: anywhere; word-break: break-word; }
+      .nodeText .label { font-size: 17px; font-weight: 850; }
+      .nodeText .detail { margin-top: 4px; font-size: 12px; font-weight: 700; color: #7c6752; line-height: 1.2; }
+      .programDecision .nodeText { color: #345f9c; }
+      .aiDecision .nodeText { color: #7654b3; }
+      .data .nodeText { color: #446f48; }
+      .error .nodeText { color: #ad4e49; }
+      .edgeLabel { fill: #4f463d; paint-order: stroke; stroke: #fbf7ef; stroke-width: 7px; stroke-linejoin: round; font-size: 14px; font-weight: 800; }
+      .code { fill: #6f5a47; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1280" height="900" fill="url(#grid)"/>
+  <rect x="32" y="24" width="1216" height="98" rx="16" fill="#f7efe2" stroke="rgba(124,101,78,0.22)"/>
+  <text x="56" y="67" class="title">PPT 8｜前后端、工作流与数据层协同</text>
+  <text x="58" y="99" class="subtitle">React 页面发起操作，FastAPI 管状态，LangGraph 风格节点推进辩论，数据层保存结果。</text>
+  <g><rect x="56" y="140" width="34" height="28" rx="5" fill="#f5efe2" stroke="#8a7b5a" stroke-width="1.6"/><text x="99" y="160" class="legendText">普通步骤</text></g>
+<g><polygon points="226,138 242,154 226,170 210,154" fill="#e7f0ff" stroke="#5477a6" stroke-width="1.6"/><text x="253" y="160" class="legendText">系统检查</text></g>
+<g><polygon points="380,138 396,154 380,170 364,154" fill="#f0e7ff" stroke="#7c5fb3" stroke-width="1.6"/><text x="407" y="160" class="legendText">AI判断</text></g>
+<g><path d="M518,144 C518,134 552,134 552,144 V164 C552,174 518,174 518,164 Z" fill="#eef5ec" stroke="#557a55" stroke-width="1.6"/><ellipse cx="535" cy="144" rx="17" ry="6" fill="#eef5ec" stroke="#557a55" stroke-width="1.6"/><text x="561" y="160" class="legendText">保存/数据库</text></g>
+<g><rect x="672" y="140" width="34" height="28" rx="5" fill="#fde7e5" stroke="#b45b55" stroke-width="1.6"/><text x="715" y="160" class="legendText">错误处理</text></g>
+  <g><path d="M260 409 L315 409" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M410 365 L560 229" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M505 409 L560 409" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M750 409 L805 424" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M1010 424 L1050 421" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/><text x="1030" y="414.5" class="edgeLabel">允许</text>
+<path d="M907.5 483 L900 545" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/><text x="903.75" y="506" class="edgeLabel">不允许</text>
+<path d="M1145 365 L1145 205 L660 205 L750 229" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M560 229 L120 229 L165 365" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/></g>
+  <g>
+    <g class="node main" id="ui">
+      <rect x="70" y="365" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="86" y="382" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">前端辩论室</div><div class="detail">赛程/消息/右侧栏</div></div>
+      </foreignObject>
+    </g>
+
+    <g class="node main" id="api">
+      <rect x="315" y="365" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="331" y="382" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">FastAPI服务层</div><div class="detail">房间、发言、WebSocket</div></div>
+      </foreignObject>
+    </g>
+
+      <g class="node data" id="state">
+        <path d="M560,199 C560,178 750,178 750,199 V259 C750,280 560,280 560,259 Z" fill="#eef5ec" stroke="#557a55" stroke-width="2"/>
+        <ellipse cx="655" cy="199" rx="95" ry="14" fill="#eef5ec" stroke="#557a55" stroke-width="2"/>
+        <foreignObject x="576" y="209" width="158" height="54">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">房间状态库</div><div class="detail">消息/席位/报告</div></div>
+        </foreignObject>
+      </g>
+
+    <g class="node main" id="graph">
+      <rect x="560" y="365" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="576" y="382" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">工作流编排</div><div class="detail">检索→生成→评分→推进</div></div>
+      </foreignObject>
+    </g>
+
+      <g class="node programDecision" id="ctx">
+        <polygon points="907.5,365 1010,424 907.5,483 805,424" fill="#e7f0ff" stroke="#5477a6" stroke-width="2"/>
+        <foreignObject x="831" y="387" width="153" height="74">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">角色是否有权限看到信息</div></div>
+        </foreignObject>
+      </g>
+
+      <g class="node aiDecision" id="llm">
+        <polygon points="1145,365 1240,421 1145,477 1050,421" fill="#f0e7ff" stroke="#7c5fb3" stroke-width="2"/>
+        <foreignObject x="1076" y="387" width="138" height="68">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">模型生成或判断</div></div>
+        </foreignObject>
+      </g>
+
+    <g class="node error" id="deny">
+      <rect x="805" y="545" width="190" height="88" rx="6" fill="#fde7e5" stroke="#b45b55" stroke-width="2"/>
+      <foreignObject x="821" y="562" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">隐藏越权内容</div><div class="detail">只返回可见上下文</div></div>
+      </foreignObject>
+    </g></g>
+  <text x="46" y="858" class="code">frontend debate-room · api/debates.py · workflow/debate_graph.py · services/ai_context_manager.py</text>
+  <text x="46" y="882" class="subtitle">来源：PPT有效信息页内容 + docs/ai-debate-project-flow.mmd + 项目实际后端/前端文件。</text>
+</svg>

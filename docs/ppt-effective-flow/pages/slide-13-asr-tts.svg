@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-label="PPT 13｜语音识别与 TTS 朗读">
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="rgba(104,86,64,0.075)" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 18 18" refX="15" refY="9" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M2 2 L16 9 L2 16 Z" fill="#5a5148"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#32261c" flood-opacity="0.1"/>
+    </filter>
+    <style>
+      svg { background: #fbf7ef; font-family: "Microsoft YaHei", "Noto Sans SC", "PingFang SC", Arial, sans-serif; }
+      .title { fill: #211b12; font-size: 34px; font-weight: 850; letter-spacing: 0; }
+      .subtitle { fill: #6f5a47; font-size: 17px; font-weight: 650; letter-spacing: 0; }
+      .legendText { fill: #211b12; font-size: 15px; font-weight: 800; }
+      .node { filter: url(#shadow); }
+      .nodeText { box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #5c4d3d; line-height: 1.25; overflow-wrap: anywhere; word-break: break-word; }
+      .nodeText .label { font-size: 17px; font-weight: 850; }
+      .nodeText .detail { margin-top: 4px; font-size: 12px; font-weight: 700; color: #7c6752; line-height: 1.2; }
+      .programDecision .nodeText { color: #345f9c; }
+      .aiDecision .nodeText { color: #7654b3; }
+      .data .nodeText { color: #446f48; }
+      .error .nodeText { color: #ad4e49; }
+      .edgeLabel { fill: #4f463d; paint-order: stroke; stroke: #fbf7ef; stroke-width: 7px; stroke-linejoin: round; font-size: 14px; font-weight: 800; }
+      .code { fill: #6f5a47; font-family: Consolas, "Courier New", monospace; font-size: 13px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1280" height="900" fill="url(#grid)"/>
+  <rect x="32" y="24" width="1216" height="98" rx="16" fill="#f7efe2" stroke="rgba(124,101,78,0.22)"/>
+  <text x="56" y="67" class="title">PPT 13｜语音识别与 TTS 朗读</text>
+  <text x="58" y="99" class="subtitle">用户可以开口发言，AI 也能朗读输出，让训练更接近现场辩论压力。</text>
+  <g><rect x="56" y="140" width="34" height="28" rx="5" fill="#f5efe2" stroke="#8a7b5a" stroke-width="1.6"/><text x="99" y="160" class="legendText">普通步骤</text></g>
+<g><polygon points="226,138 242,154 226,170 210,154" fill="#e7f0ff" stroke="#5477a6" stroke-width="1.6"/><text x="253" y="160" class="legendText">系统检查</text></g>
+<g><polygon points="380,138 396,154 380,170 364,154" fill="#f0e7ff" stroke="#7c5fb3" stroke-width="1.6"/><text x="407" y="160" class="legendText">AI判断</text></g>
+<g><path d="M518,144 C518,134 552,134 552,144 V164 C552,174 518,174 518,164 Z" fill="#eef5ec" stroke="#557a55" stroke-width="1.6"/><ellipse cx="535" cy="144" rx="17" ry="6" fill="#eef5ec" stroke="#557a55" stroke-width="1.6"/><text x="561" y="160" class="legendText">保存/数据库</text></g>
+<g><rect x="672" y="140" width="34" height="28" rx="5" fill="#fde7e5" stroke="#b45b55" stroke-width="1.6"/><text x="715" y="160" class="legendText">错误处理</text></g>
+  <g><path d="M172.5 365 L315 244" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/><text x="243.75" y="296.5" class="edgeLabel">AI发言</text>
+<path d="M520 244 L560 229" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/><text x="548" y="230" class="edgeLabel">允许</text>
+<path d="M750 229 L805 229" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M995 229 L1145 365" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M172.5 483 L315 589" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/><text x="243.75" y="528" class="edgeLabel">用户说话</text>
+<path d="M505 589 L560 589" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M750 589 L805 604" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/>
+<path d="M1010 604 L1050 409" fill="none" stroke="#5a5148" stroke-width="2.3" marker-end="url(#arrow)"/><text x="1030" y="498.5" class="edgeLabel">是</text></g>
+  <g>
+      <g class="node programDecision" id="mode">
+        <polygon points="172.5,365 275,424 172.5,483 70,424" fill="#e7f0ff" stroke="#5477a6" stroke-width="2"/>
+        <foreignObject x="96" y="387" width="153" height="74">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">当前是用户说话还是AI发言</div></div>
+        </foreignObject>
+      </g>
+
+    <g class="node main" id="record">
+      <rect x="315" y="545" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="331" y="562" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">录音上传</div></div>
+      </foreignObject>
+    </g>
+
+    <g class="node main" id="asr">
+      <rect x="560" y="545" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="576" y="562" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">ASR转文字</div></div>
+      </foreignObject>
+    </g>
+
+      <g class="node programDecision" id="validate">
+        <polygon points="907.5,545 1010,604 907.5,663 805,604" fill="#e7f0ff" stroke="#5477a6" stroke-width="2"/>
+        <foreignObject x="831" y="567" width="153" height="74">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">是否轮到该用户</div></div>
+        </foreignObject>
+      </g>
+
+      <g class="node programDecision" id="ttsPolicy">
+        <polygon points="417.5,185 520,244 417.5,303 315,244" fill="#e7f0ff" stroke="#5477a6" stroke-width="2"/>
+        <foreignObject x="341" y="207" width="153" height="74">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">是否允许朗读</div></div>
+        </foreignObject>
+      </g>
+
+    <g class="node main" id="tts">
+      <rect x="560" y="185" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="576" y="202" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">生成TTS音频</div></div>
+      </foreignObject>
+    </g>
+
+    <g class="node main" id="queue">
+      <rect x="805" y="185" width="190" height="88" rx="10" fill="#f5efe2" stroke="#8a7b5a" stroke-width="2"/>
+      <foreignObject x="821" y="202" width="158" height="60">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">顺序播放音频</div><div class="detail">避免重叠</div></div>
+      </foreignObject>
+    </g>
+
+      <g class="node data" id="speech">
+        <path d="M1050,379 C1050,358 1240,358 1240,379 V439 C1240,460 1050,460 1050,439 Z" fill="#eef5ec" stroke="#557a55" stroke-width="2"/>
+        <ellipse cx="1145" cy="379" rx="95" ry="14" fill="#eef5ec" stroke="#557a55" stroke-width="2"/>
+        <foreignObject x="1066" y="389" width="158" height="54">
+          <div xmlns="http://www.w3.org/1999/xhtml" class="nodeText"><div class="label">进入发言文本</div><div class="detail">评分/发布/推进</div></div>
+        </foreignObject>
+      </g></g>
+  <text x="46" y="858" class="code">services/asr.py · services/tts.py · services/tts_policy.py · hooks/useAudioQueue.js</text>
+  <text x="46" y="882" class="subtitle">来源：PPT有效信息页内容 + docs/ai-debate-project-flow.mmd + 项目实际后端/前端文件。</text>
+</svg>

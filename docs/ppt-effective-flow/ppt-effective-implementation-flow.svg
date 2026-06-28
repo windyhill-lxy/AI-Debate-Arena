@@ -1,0 +1,299 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2600" viewBox="0 0 1800 2600" role="img" aria-labelledby="title desc">
+  <title id="title">PPT有效信息页对应的 AI 辩论场实现流程</title>
+  <desc id="desc">把 6.26 PPT 中的有效功能页映射到 AI 辩论场项目的真实实现流程、关键系统步骤和代码落点。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 18 18" refX="15" refY="9" markerWidth="11" markerHeight="11" orient="auto-start-reverse">
+      <path d="M2 2 L16 9 L2 16 Z" fill="#21313b"/>
+    </marker>
+    <linearGradient id="headerGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14342f"/>
+      <stop offset="0.55" stop-color="#21485a"/>
+      <stop offset="1" stop-color="#5f3b56"/>
+    </linearGradient>
+    <filter id="softShadow" x="-12%" y="-12%" width="124%" height="124%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#17232b" flood-opacity="0.16"/>
+    </filter>
+    <style>
+      svg {
+        background: #f4f1e9;
+        color: #17232b;
+        font-family: "Microsoft YaHei", "Noto Sans SC", "PingFang SC", Arial, sans-serif;
+      }
+      .title {
+        font-size: 56px;
+        font-weight: 800;
+        letter-spacing: 0;
+        fill: #ffffff;
+      }
+      .subtitle {
+        font-size: 24px;
+        fill: #e9f0eb;
+      }
+      .small {
+        font-size: 20px;
+        fill: #51606b;
+      }
+      .label {
+        font-size: 20px;
+        font-weight: 700;
+        fill: #5b4a38;
+      }
+      .laneTitle {
+        font-size: 25px;
+        font-weight: 800;
+        fill: #17232b;
+      }
+      .badgeText {
+        font-size: 18px;
+        font-weight: 800;
+        fill: #ffffff;
+      }
+      .nodeTitle {
+        margin: 0 0 10px;
+        color: #17232b;
+        font-size: 25px;
+        font-weight: 800;
+        line-height: 1.18;
+      }
+      .nodeBody {
+        margin: 0;
+        color: #2d3941;
+        font-size: 19px;
+        line-height: 1.58;
+      }
+      .codeBody {
+        margin: 0;
+        color: #33424c;
+        font-size: 17px;
+        line-height: 1.52;
+      }
+      .codeBody b {
+        color: #17232b;
+      }
+      .pptBody {
+        margin: 0;
+        color: #3f4b52;
+        font-size: 18px;
+        line-height: 1.54;
+      }
+      .pptTag {
+        display: inline-block;
+        margin: 0 6px 8px 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        color: #ffffff;
+        font-size: 17px;
+        font-weight: 800;
+      }
+      .caption {
+        color: #5b6870;
+        font-size: 18px;
+        line-height: 1.55;
+      }
+      .mono {
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 15px;
+      }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1800" height="2600" fill="#f4f1e9"/>
+  <rect x="70" y="60" width="1660" height="250" rx="30" fill="url(#headerGradient)" filter="url(#softShadow)"/>
+  <text x="120" y="150" class="title">PPT有效信息页对应的 AI 辩论场实现流程</text>
+  <text x="122" y="205" class="subtitle">从“PPT写到的功能价值”回到“项目里真正怎样跑起来”</text>
+  <text x="122" y="252" class="subtitle">输入：F:/PPT文件/6.26最新最新最新最新版.pptx ｜ 项目：F:/Project/AI辩论项目</text>
+
+  <g transform="translate(82 348)">
+    <text x="16" y="0" class="label">PPT有效信息页</text>
+    <text x="400" y="0" class="label">项目完整流程中的实现位置</text>
+    <text x="1250" y="0" class="label">主要代码落点</text>
+  </g>
+
+  <!-- stage 1 -->
+  <g transform="translate(80 390)">
+    <rect x="0" y="0" width="1640" height="250" rx="22" fill="#fffaf0" stroke="#d2c4a3" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="250" rx="13" fill="#bd6b4d"/>
+    <circle cx="66" cy="64" r="35" fill="#bd6b4d"/>
+    <text x="56" y="75" class="badgeText">1</text>
+    <foreignObject x="114" y="34" width="255" height="180">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">入口与模式选择</p>
+        <p class="pptBody"><span class="pptTag" style="background:#bd6b4d">7</span><span class="pptTag" style="background:#bd6b4d">19</span><br/>AI自主、用户加入正方/反方、多人联机，都是从创建房间和选择席位开始。</p>
+      </div>
+    </foreignObject>
+    <path d="M390 126 H470" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+    <foreignObject x="500" y="30" width="670" height="190">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">首页/邀请链接 → 创建房间 → 选择模式和席位 → 初始化赛程</p>
+        <p class="nodeBody">系统先保存辩题、资料、观看权限和参与方式。联机时房主与宾客完成入座，正式房间带着赛程、成员、论据准备状态进入辩论室。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="34" width="350" height="180">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><b>后端</b><br/><span class="mono">api/debates.py</span><br/><span class="mono">services/debate_schedule.py</span><br/><span class="mono">services/presence.py</span><br/><span class="mono">services/tunnel_service.py</span></p>
+        <p class="codeBody"><b>前端</b><br/><span class="mono">OnlineSimplePanel.jsx</span></p>
+      </div>
+    </foreignObject>
+  </g>
+  <path d="M900 646 V700" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- stage 2 -->
+  <g transform="translate(80 710)">
+    <rect x="0" y="0" width="1640" height="270" rx="22" fill="#f4fbf5" stroke="#a9c8ae" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="270" rx="13" fill="#457b57"/>
+    <circle cx="66" cy="64" r="35" fill="#457b57"/>
+    <text x="56" y="75" class="badgeText">2</text>
+    <foreignObject x="114" y="34" width="255" height="205">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">资料入库与论据准备</p>
+        <p class="pptBody"><span class="pptTag" style="background:#457b57">14</span><span class="pptTag" style="background:#457b57">15</span><span class="pptTag" style="background:#457b57">22</span><br/>RAG、防幻觉、来源清晰、具体数据支撑，都落在论据库准备阶段。</p>
+      </div>
+    </foreignObject>
+    <path d="M390 136 H470" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+    <foreignObject x="500" y="30" width="670" height="215">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">上传资料/辩题 → RAG索引 → 正反方开场论据预搜集 → 编号入库</p>
+        <p class="nodeBody">后台先围绕辩题找事实、案例和数据，过滤不合格内容，再整理成正反双方论据库。每条论据获得稳定编号，后续发言引用这些编号，方便核查与评分。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="34" width="350" height="200">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><b>证据链</b><br/><span class="mono">services/rag.py</span><br/><span class="mono">services/opening_evidence.py</span><br/><span class="mono">services/opening_evidence_warmup.py</span><br/><span class="mono">services/argument_bank.py</span></p>
+      </div>
+    </foreignObject>
+  </g>
+  <path d="M900 986 V1040" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- stage 3 -->
+  <g transform="translate(80 1050)">
+    <rect x="0" y="0" width="1640" height="300" rx="22" fill="#eff7fb" stroke="#a7c4cf" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="300" rx="13" fill="#2e7186"/>
+    <circle cx="66" cy="64" r="35" fill="#2e7186"/>
+    <text x="56" y="75" class="badgeText">3</text>
+    <foreignObject x="114" y="34" width="255" height="230">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">赛程编排与智能体工作流</p>
+        <p class="pptBody"><span class="pptTag" style="background:#2e7186">8</span><span class="pptTag" style="background:#2e7186">10</span><br/>LangGraph流程、自主推进、正规4v4赛程，是整场比赛的主干。</p>
+      </div>
+    </foreignObject>
+    <path d="M390 150 H470" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+    <foreignObject x="500" y="30" width="670" height="245">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">formal_4v4赛程 → 检索 → 策略 → 生成 → 核查 → 发布 → 评分 → 推进</p>
+        <p class="nodeBody">不是让 AI 随机聊天，而是每一步都有角色、任务和推进条件。系统判断当前轮次该谁说、是否需要等待用户、是否需要裁判评分，然后路由到下一环节。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="34" width="350" height="230">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><b>流程核心</b><br/><span class="mono">workflow/debate_graph.py</span><br/><span class="mono">config/schedules/formal_4v4.yaml</span><br/><span class="mono">services/debate_schedule.py</span></p>
+      </div>
+    </foreignObject>
+  </g>
+  <path d="M900 1356 V1410" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- stage 4 -->
+  <g transform="translate(80 1420)">
+    <rect x="0" y="0" width="1640" height="285" rx="22" fill="#f6f0fb" stroke="#c4afd4" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="285" rx="13" fill="#73578f"/>
+    <circle cx="66" cy="64" r="35" fill="#73578f"/>
+    <text x="56" y="75" class="badgeText">4</text>
+    <foreignObject x="114" y="34" width="255" height="215">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">队内讨论与上下文权限</p>
+        <p class="pptBody"><span class="pptTag" style="background:#73578f">11</span><span class="pptTag" style="background:#73578f">16</span><span class="pptTag" style="background:#73578f">22</span><br/>队友协作、自由辩多人参与、信息边界控制在这里实现。</p>
+      </div>
+    </foreignObject>
+    <path d="M390 143 H470" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+    <foreignObject x="500" y="30" width="670" height="225">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">论据就绪后 → 一辩分工 → 本方队内讨论 → 真人席位等待 → AI队友补充</p>
+        <p class="nodeBody">同一方先围绕论据、攻防和分工形成策略。上下文管理保证正反方只看到自己应看到的信息，避免 AI 因“全知视角”破坏真实训练。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="34" width="350" height="215">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><b>协作与权限</b><br/><span class="mono">services/team_discussion.py</span><br/><span class="mono">services/ai_context_manager.py</span><br/><span class="mono">services/message_visibility.py</span><br/><span class="mono">services/viewer_payload.py</span></p>
+      </div>
+    </foreignObject>
+  </g>
+  <path d="M900 1711 V1765" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- stage 5 -->
+  <g transform="translate(80 1775)">
+    <rect x="0" y="0" width="1640" height="300" rx="22" fill="#fff4f1" stroke="#d2afa5" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="300" rx="13" fill="#a94442"/>
+    <circle cx="66" cy="64" r="35" fill="#a94442"/>
+    <text x="56" y="75" class="badgeText">5</text>
+    <foreignObject x="114" y="34" width="255" height="230">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">公开发言、人类介入与评分</p>
+        <p class="pptBody"><span class="pptTag" style="background:#a94442">17</span><span class="pptTag" style="background:#a94442">19</span><span class="pptTag" style="background:#a94442">22</span><span class="pptTag" style="background:#a94442">23</span><br/>用户发言、现场反驳、无来源扣分和评委反馈在这里闭环。</p>
+      </div>
+    </foreignObject>
+    <path d="M390 150 H470" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+    <foreignObject x="500" y="30" width="670" height="245">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">轮到真人则暂停 → 输入或语音转写 → 引用校验/内容评分 → 超时/摄像头加权 → 自动推进</p>
+        <p class="nodeBody">系统检查是否轮到本人、是否引用论据、内容是否空泛或虚假。发言保存后触发评分与赛程推进，让训练既能参与，又有明确反馈。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="34" width="350" height="230">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><b>真人回合</b><br/><span class="mono">services/user_turn_flow.py</span><br/><span class="mono">services/user_message_scoring.py</span><br/><span class="mono">services/user_speech_judge.py</span><br/><span class="mono">services/camera_speech_scoring.py</span></p>
+      </div>
+    </foreignObject>
+  </g>
+  <path d="M900 2081 V2135" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- stage 6 -->
+  <g transform="translate(80 2145)">
+    <rect x="0" y="0" width="1640" height="260" rx="22" fill="#eef8f7" stroke="#a5c9c4" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="260" rx="13" fill="#2b7a78"/>
+    <circle cx="66" cy="64" r="35" fill="#2b7a78"/>
+    <text x="56" y="75" class="badgeText">6</text>
+    <foreignObject x="114" y="34" width="255" height="195">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">多模态与实时同步</p>
+        <p class="pptBody"><span class="pptTag" style="background:#2b7a78">12</span><span class="pptTag" style="background:#2b7a78">13</span><span class="pptTag" style="background:#2b7a78">18</span><span class="pptTag" style="background:#2b7a78">19</span><br/>摄像头、ASR、TTS、联机同步和错误弹窗服务实际使用体验。</p>
+      </div>
+    </foreignObject>
+    <path d="M390 130 H470" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+    <foreignObject x="500" y="30" width="670" height="205">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle">WebSocket流式状态 → TTS朗读 → ASR上传识别 → 摄像头表现监测 → 联机状态/隧道 → 统一报错</p>
+        <p class="nodeBody">AI 发言边生成边显示，用户可以语音输入，摄像头和联机模块提供现场感；异常被整理成用户能看懂的弹窗，而不是让程序直接崩溃。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="34" width="350" height="195">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><b>实时能力</b><br/><span class="mono">services/asr.py</span> / <span class="mono">tts.py</span><br/><span class="mono">services/realtime.py</span><br/><span class="mono">api/confidence_monitor.py</span><br/><span class="mono">ErrorDialogProvider.jsx</span></p>
+      </div>
+    </foreignObject>
+  </g>
+  <path d="M900 2411 V2445" stroke="#21313b" stroke-width="4" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- stage 7 compact footer -->
+  <g transform="translate(80 2450)">
+    <rect x="0" y="0" width="1640" height="105" rx="22" fill="#f7f4ff" stroke="#c1b5d8" stroke-width="2" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="26" height="105" rx="13" fill="#4f527d"/>
+    <text x="54" y="64" class="laneTitle">7</text>
+    <foreignObject x="100" y="22" width="330" height="70">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeTitle" style="font-size:23px;margin-bottom:4px">复盘与导出</p>
+        <p class="pptBody"><span class="pptTag" style="background:#4f527d">7</span><span class="pptTag" style="background:#4f527d">18</span><span class="pptTag" style="background:#4f527d">23</span></p>
+      </div>
+    </foreignObject>
+    <foreignObject x="500" y="24" width="670" height="65">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="nodeBody">裁判终局报告 → Markdown/PDF导出 → 回放分享 → 管理诊断与模型调用统计。</p>
+      </div>
+    </foreignObject>
+    <foreignObject x="1230" y="22" width="350" height="70">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p class="codeBody"><span class="mono">services/judge_report.py</span> / <span class="mono">export_pdf.py</span><br/><span class="mono">pages/Replay.jsx</span> / <span class="mono">pages/Admin.jsx</span></p>
+      </div>
+    </foreignObject>
+  </g>
+
+  <text x="88" y="2582" class="small">说明：图中页码来自 PPT 的有效信息页；代码落点只列汇报时最有解释价值的入口，不代表完整文件清单。</text>
+</svg>
