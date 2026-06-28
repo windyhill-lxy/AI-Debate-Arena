@@ -134,8 +134,39 @@ def get_segment(debate: DebateState, index: int) -> DebateSegment | None:
     return None
 
 
+def _should_skip_segment(debate: DebateState, segment: DebateSegment) -> bool:
+    label = segment.label or ""
+    if not getattr(debate, "team_discussion_enabled", False):
+        team_setup_ids = {
+            "opening_task_assign",
+            "neg_opening_task_assign",
+            "opening_task_check",
+            "point_split",
+            "evidence_split",
+            "aff_opening_discussion",
+            "neg_opening_discussion",
+            "opening_strategy_lock",
+        }
+        if segment.id in team_setup_ids or "队内讨论" in label:
+            return True
+    if getattr(debate, "rag_review_mode", "essential") != "full":
+        review_phases = {"argument_review", "rebuttal_review", "free_review", "closing_review"}
+        if segment.phase in review_phases:
+            return True
+        if segment.id in {"free_predict_rag", "free_case_rag", "closing_knowledge_rag", "judge_criteria_rag"}:
+            return True
+        if "RAG检索" in label and segment.id != "opening_evidence_bank":
+            return True
+        if "大模型判断" in label and segment.phase != "post_match":
+            return True
+    return False
+
+
 def apply_segment(debate: DebateState, index: int) -> None:
-    segment = get_segment(debate, index)
+    schedule = _schedule_for(debate)
+    while 0 <= index < len(schedule) and _should_skip_segment(debate, schedule[index]):
+        index += 1
+    segment = schedule[index] if 0 <= index < len(schedule) else None
     if segment is None:
         debate.phase = "finished"
         debate.segment_label = "比赛结束"

@@ -33,6 +33,8 @@ def _online_team_discussion_debate() -> DebateState:
         format="formal",
         agents=default_agents(),
         workflow=workflow_template(),
+        team_discussion_enabled=True,
+        rag_review_mode="full",
         awaiting_user=True,
         active_speaker_id="aff_1",
     )
@@ -102,6 +104,8 @@ def test_public_scoring_uses_windowed_camera_without_latest_frame_double_count(m
         format="formal",
         agents=default_agents(),
         workflow=workflow_template(),
+        team_discussion_enabled=True,
+        rag_review_mode="full",
         awaiting_user=True,
         active_speaker_id="aff_1",
         awaiting_user_since=datetime.fromtimestamp(120, tz=UTC),

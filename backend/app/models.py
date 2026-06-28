@@ -31,6 +31,11 @@ class DebateTiming(str, Enum):
     unlimited = "unlimited"
 
 
+class RagReviewMode(str, Enum):
+    essential = "essential"
+    full = "full"
+
+
 class DebateMode(str, Enum):
     ai_autonomous = "ai_autonomous"
     user_affirmative = "user_affirmative"
@@ -143,6 +148,8 @@ class DebateCreate(BaseModel):
     timing: DebateTiming = DebateTiming.limited
     turn_seconds: int = 90
     tts_enabled: bool = True
+    team_discussion_enabled: bool = False
+    rag_review_mode: RagReviewMode = RagReviewMode.essential
     human_timeout_penalty_enabled: bool = True
     format: Literal["formal", "free"] = "formal"
     schedule_template: str = "formal_4v4"
@@ -230,6 +237,8 @@ class DebateState(BaseModel):
     schedule_template: str = "formal_4v4"
     user_draft: str = ""
     tts_enabled: bool = True
+    team_discussion_enabled: bool = False
+    rag_review_mode: RagReviewMode = RagReviewMode.essential
     visibility_locked: bool = False
     timing_locked: bool = False
     rules_locked_at: datetime | None = None
@@ -396,15 +405,7 @@ def workflow_template() -> list[WorkflowNode]:
         ("rag_retrieve", "RAG 检索:增强论点", "retrieval", "为当前发言检索可引用资料。", "立论/驳论/总结", 1),
         ("strategy_plan", "策略规划", "llm", "按当前环节生成攻防路线。", "立论/驳论/总结", 2),
         ("stance_decision", "大模型判断发言方向", "router", "结合环节和历史选择发言任务。", "立论/驳论/总结", 3),
-        (
-            "reflection_draft_finalize",
-            "反思:草稿→定稿",
-            "llm",
-            "非自由辩时一轮内部草稿再凝练为正式发言。",
-            "立论/驳论/总结",
-            4,
-        ),
-        ("speech_generate", "辩手发言生成", "llm", "DeepSeek Flash 流式生成 Markdown 发言。", "立论/驳论/总结", 5),
+        ("speech_generate", "辩手发言生成", "llm", "DeepSeek Flash 一次流式生成 Markdown 发言。", "立论/驳论/总结", 4),
         ("fact_check", "RAG 检索:事实核查", "check", "核对引用、数字、法规和来源。", "立论/驳论/总结", 6),
         ("argument_strength_check", "大模型判断论点强度", "judge", "评估论点强度、回应性和漏洞。", "立论/驳论/总结", 7),
         ("rebuttal_effect_check", "大模型判断驳论有效性", "judge", "判断反驳是否命中对方核心。", "立论/驳论/总结", 8),

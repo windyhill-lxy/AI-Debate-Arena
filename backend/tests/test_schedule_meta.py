@@ -14,6 +14,8 @@ def _debate() -> DebateState:
         format="formal",
         agents=default_agents(),
         workflow=workflow_template(),
+        team_discussion_enabled=True,
+        rag_review_mode="full",
     )
 
 
@@ -122,3 +124,57 @@ def test_formal_4v4_cross_examination_rules_name_question_and_answer_targets() -
     assert "回答方：正方一辩" in segments["neg_cross_q_aff1"].rules
     assert "回答方：正方二辩" in segments["aff2_cross_answer"].rules
     assert "回答方：正方四辩" in segments["aff4_cross_answer"].rules
+
+
+def test_fast_room_skips_team_discussion_when_disabled() -> None:
+    debate = _debate()
+    debate.team_discussion_enabled = False
+    init_schedule(debate)
+
+    for index in range(120):
+        segment = get_segment(debate, index)
+        if segment and segment.id == "evidence_split":
+            apply_segment(debate, index)
+            break
+    else:
+        raise AssertionError("evidence_split segment not found")
+
+    assert get_segment(debate, debate.schedule_index).id == "aff_opening_1"
+
+
+def test_fast_room_skips_all_internal_discussion_setup_when_disabled() -> None:
+    debate = _debate()
+    debate.team_discussion_enabled = False
+    init_schedule(debate)
+
+    visited: list[str] = []
+    for _ in range(20):
+        current = get_segment(debate, debate.schedule_index)
+        if current:
+            visited.append(current.id)
+        if current and current.id == "aff_opening_1":
+            break
+        assert advance_schedule(debate) is True
+
+    assert "opening_task_assign" not in visited
+    assert "neg_opening_task_assign" not in visited
+    assert "aff_opening_discussion" not in visited
+    assert "neg_opening_discussion" not in visited
+    assert visited[-1] == "aff_opening_1"
+
+
+def test_essential_rag_mode_skips_public_review_segments() -> None:
+    debate = _debate()
+    debate.rag_review_mode = "essential"
+    init_schedule(debate)
+
+    for index in range(120):
+        segment = get_segment(debate, index)
+        if segment and segment.id == "aff_opening_1":
+            apply_segment(debate, index)
+            break
+    else:
+        raise AssertionError("aff_opening_1 segment not found")
+
+    assert advance_schedule(debate) is True
+    assert get_segment(debate, debate.schedule_index).id == "neg_opening_1"

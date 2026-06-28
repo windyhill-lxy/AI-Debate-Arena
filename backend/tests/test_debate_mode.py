@@ -29,6 +29,8 @@ def _debate(mode: DebateMode) -> DebateState:
         format="formal",
         agents=default_agents(),
         workflow=workflow_template(),
+        team_discussion_enabled=True,
+        rag_review_mode="full",
     )
 
 

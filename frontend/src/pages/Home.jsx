@@ -57,6 +57,8 @@ async function createDebate(topic, mode, scheduleTemplate, materials, userSeat, 
       visibility: rules.visibility,
       timing: rules.timing,
       tts_enabled: rules.ttsEnabled,
+      team_discussion_enabled: rules.teamDiscussionEnabled,
+      rag_review_mode: rules.ragReviewMode,
       human_timeout_penalty_enabled: rules.timing === "limited",
       format: "formal",
       schedule_template: scheduleTemplate,
@@ -136,6 +138,8 @@ export default function Home() {
   const [visibilityMode, setVisibilityMode] = useState("own_side_only");
   const [timingMode, setTimingMode] = useState("limited");
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [teamDiscussionEnabled, setTeamDiscussionEnabled] = useState(false);
+  const [ragReviewMode, setRagReviewMode] = useState("essential");
   const [schedules, setSchedules] = useState(FALLBACK_SCHEDULES);
   const [materialTitle, setMaterialTitle] = useState("辩题参考资料");
   const [materialText, setMaterialText] = useState("");
@@ -300,6 +304,8 @@ export default function Home() {
         visibility: modeForCreate === "ai_autonomous" ? "all_visible" : visibilityMode,
         timing: modeForCreate === "ai_autonomous" ? "unlimited" : timingMode,
         ttsEnabled,
+        teamDiscussionEnabled,
+        ragReviewMode,
       };
       const debate = await createDebate(
         topic,
@@ -311,11 +317,11 @@ export default function Home() {
       );
       if (modeForCreate === "online_match") {
         navigate(`/join/${debate.id}`, {
-          state: { topic, fromCreate: true, scheduleTemplate, materialChunks: materials.length },
+          state: { topic, fromCreate: true, scheduleTemplate, materialChunks: materials.length, cameraEnabled: shouldEnableMonitor },
         });
       } else {
         navigate(`/room/${debate.id}`, {
-          state: { debate, mode: modeForCreate, topic, scheduleTemplate, materialChunks: materials.length },
+          state: { debate, mode: modeForCreate, topic, scheduleTemplate, materialChunks: materials.length, cameraEnabled: shouldEnableMonitor },
         });
       }
     } catch (error) {
@@ -647,6 +653,33 @@ export default function Home() {
             <input type="checkbox" checked={ttsEnabled} onChange={(event) => setTtsEnabled(event.target.checked)} />
             <span>开赛后启用 TTS 语音朗读</span>
           </label>
+          <label className="home-confidence__toggle">
+            <input
+              type="checkbox"
+              checked={teamDiscussionEnabled}
+              onChange={(event) => setTeamDiscussionEnabled(event.target.checked)}
+            />
+            <span>开启队内讨论（更完整，但会增加 AI 调用）</span>
+          </label>
+          <div className="segmented">
+            <button
+              type="button"
+              className={ragReviewMode === "essential" ? "active" : ""}
+              onClick={() => setRagReviewMode("essential")}
+            >
+              必要复核
+            </button>
+            <button
+              type="button"
+              className={ragReviewMode === "full" ? "active" : ""}
+              onClick={() => setRagReviewMode("full")}
+            >
+              完整逐轮复核
+            </button>
+          </div>
+          <p className="home-hint">
+            必要复核会保留赛前论据库和引用编号要求，并跳过逐轮 RAG/质量判断，AI 发言明显更快。
+          </p>
         </section>
       </section>
       )}

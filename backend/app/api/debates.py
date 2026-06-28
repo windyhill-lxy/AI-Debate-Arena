@@ -79,12 +79,58 @@ router = APIRouter(prefix="/api/debates", tags=["debates"])
 logger = logging.getLogger(__name__)
 
 
+def _online_connected_debater_count(debate: DebateState) -> int:
+    return len(
+        [
+            p
+            for p in debate.participants
+            if p.connected and p.side in {"affirmative", "negative"} and p.position in {1, 2, 3, 4}
+        ]
+    )
+
+
+def _online_room_can_auto_start(debate: DebateState) -> bool:
+    if debate.mode != DebateMode.online_match:
+        return True
+    return bool(debate.online_ready and _online_connected_debater_count(debate) >= 2)
+
+
+def _online_waiting_for_human_turn(debate: DebateState) -> bool:
+    return bool(
+        debate.mode == DebateMode.online_match
+        and debate.awaiting_user
+        and needs_user_turn(debate)
+    )
+
+
+async def _resume_after_opening_evidence_ready(debate_id: str) -> None:
+    doc = await get_debate(debate_id)
+    if doc is None:
+        return
+    debate = _state_from_doc(doc)
+    if debate.phase == "finished" or debate.awaiting_user:
+        return
+    if not _online_room_can_auto_start(debate):
+        debate.auto_running = False
+        debate.updated_at = utc_now()
+        await _persist_and_broadcast(debate, "online_waiting_for_debaters")
+        return
+    if not debate.auto_running:
+        debate.auto_running = True
+        debate.updated_at = utc_now()
+        await _persist_and_broadcast(debate, "online_ready_to_continue")
+    resume_auto(debate_id)
+
+
 def warm_opening_evidence(debate: DebateState) -> None:
+    def on_ready(debate_id: str) -> None:
+        asyncio.create_task(_resume_after_opening_evidence_ready(debate_id))
+
     start_opening_evidence_warmup(
         debate.id,
         debate.topic,
         persist_and_broadcast=_persist_and_broadcast,
-        on_ready=resume_auto,
+        on_ready=on_ready,
     )
 
 
@@ -298,6 +344,8 @@ def _export_markdown(debate: DebateState, *, viewer_mode: str | None = None) -> 
         f"| 赛制 | {debate.schedule_template} |",
         f"| 计时 | {debate.timing.value} · 每环节 {debate.turn_seconds}s |",
         f"| TTS | {'开启' if debate.tts_enabled else '关闭'} |",
+        f"| 队内讨论 | {'开启' if debate.team_discussion_enabled else '关闭'} |",
+        f"| RAG复核 | {'完整逐轮复核' if debate.rag_review_mode == 'full' else '必要复核'} |",
         f"| 当前环节 | {debate.phase} / {debate.segment_label} |",
         f"| 最终/当前比分 | 正方 {aff_score:.2f} · 反方 {neg_score:.2f} |",
         f"| 发言统计 | 公开 {len(public_messages)} 条 · 队内 {len(internal_messages)} 条 · 裁判分析 {len(judge_notes)} 条 · 总计 {len(debate.messages)} 条 |",
@@ -664,6 +712,8 @@ async def prepare_opening_evidence(payload: DebateCreate) -> dict:
         turn_seconds=payload.turn_seconds,
         format=payload.format,
         schedule_template=payload.schedule_template or "formal_4v4",
+        team_discussion_enabled=payload.team_discussion_enabled,
+        rag_review_mode=payload.rag_review_mode,
         agents=default_agents(),
         workflow=workflow_template(),
         auto_running=False,
@@ -765,6 +815,8 @@ async def create_debate(payload: DebateCreate) -> dict:
         user_position=user_position,
         user_name=user_name,
         tts_enabled=payload.tts_enabled,
+        team_discussion_enabled=payload.team_discussion_enabled,
+        rag_review_mode=payload.rag_review_mode,
         human_timeout_penalty_enabled=(
             False if payload.mode == DebateMode.ai_autonomous else payload.human_timeout_penalty_enabled
         ),
@@ -1027,6 +1079,7 @@ async def join_debate_participant(debate_id: str, payload: ParticipantJoin, requ
             and not debate.awaiting_user
             and debate.phase != "finished"
             and not debate.auto_running
+            and _online_room_can_auto_start(debate)
         ):
             debate.auto_running = True
 
@@ -1067,6 +1120,7 @@ async def mark_online_ready(
             not debate.awaiting_user
             and debate.phase != "finished"
             and not debate.auto_running
+            and _online_room_can_auto_start(debate)
         ):
             debate.auto_running = True
         debate = await _persist_and_broadcast(debate, "online_ready")
@@ -1379,6 +1433,11 @@ async def resume_debate(debate_id: str, request: Request) -> dict[str, str]:
     doc = await get_debate(debate_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Debate not found")
+    debate = _state_from_doc(doc)
+    if _online_waiting_for_human_turn(debate):
+        raise HTTPException(status_code=409, detail="当前正在等待联机辩手发言，不能用自动推进跳过真人回合")
+    if debate.mode == DebateMode.online_match and not _online_room_can_auto_start(debate):
+        raise HTTPException(status_code=409, detail="联机房间仍在等待至少两位辩手加入，暂不能开始自动推进")
     resume_auto(debate_id)
     return {"status": "resumed"}
 
@@ -1422,6 +1481,10 @@ async def host_control_debate(
             append_ops_event("host_control", "主持人暂停自动推进", debate_id=debate_id)
             return {"status": "paused"}
         if action == "resume":
+            if _online_waiting_for_human_turn(debate):
+                raise HTTPException(status_code=409, detail="当前正在等待联机辩手发言，不能用自动推进跳过真人回合")
+            if not _online_room_can_auto_start(debate):
+                raise HTTPException(status_code=409, detail="联机房间仍在等待至少两位辩手加入，暂不能开始自动推进")
             debate.auto_running = True
             debate.awaiting_user = False
             debate.updated_at = utc_now()

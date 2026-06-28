@@ -15,6 +15,7 @@ import {
   resolveInviteBase,
 } from "../utils/onlineInvite.js";
 import { saveHostToken } from "../utils/hostToken.js";
+import { requirePublicTunnelForInvite } from "../utils/publicInviteTunnel.js";
 
 function RoomRules({
   visibilityMode,
@@ -23,6 +24,10 @@ function RoomRules({
   setTimingMode,
   ttsEnabled,
   setTtsEnabled,
+  teamDiscussionEnabled,
+  setTeamDiscussionEnabled,
+  ragReviewMode,
+  setRagReviewMode,
 }) {
   return (
     <div className="online-simple__rules">
@@ -63,6 +68,31 @@ function RoomRules({
         <input type="checkbox" checked={ttsEnabled} onChange={(event) => setTtsEnabled(event.target.checked)} />
         <span>启用 TTS 语音朗读</span>
       </label>
+      <label className="home-confidence__toggle">
+        <input
+          type="checkbox"
+          checked={teamDiscussionEnabled}
+          onChange={(event) => setTeamDiscussionEnabled(event.target.checked)}
+        />
+        <span>开启队内讨论（更完整，但会增加 AI 调用）</span>
+      </label>
+      <div className="segmented">
+        <button
+          type="button"
+          className={ragReviewMode === "essential" ? "active" : ""}
+          onClick={() => setRagReviewMode("essential")}
+        >
+          必要复核
+        </button>
+        <button
+          type="button"
+          className={ragReviewMode === "full" ? "active" : ""}
+          onClick={() => setRagReviewMode("full")}
+        >
+          完整逐轮复核
+        </button>
+      </div>
+      <p className="online-simple__micro-hint">必要复核会跳过逐轮 RAG/质量判断，AI 发言更快。</p>
     </div>
   );
 }
@@ -122,18 +152,6 @@ async function copyTextSafely(text) {
   return copied;
 }
 
-function assertPublicTunnelReady(tunnelState) {
-  if (!tunnelState?.running || !tunnelState?.url) {
-    throw new Error(tunnelState?.error || "公网隧道未开启，请重新点击复制公网邀请链接。");
-  }
-  if (!tunnelState?.healthy) {
-    throw new Error(
-      tunnelState?.error ||
-        "公网地址暂未连通，同学打开会显示离线。请稍后重试，或重启公网隧道/改用局域网联机。",
-    );
-  }
-}
-
 export default function OnlineSimplePanel({
   variant = "standalone",
   debateId = "",
@@ -155,6 +173,8 @@ export default function OnlineSimplePanel({
   const [visibilityMode, setVisibilityMode] = useState("own_side_only");
   const [timingMode, setTimingMode] = useState("limited");
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [teamDiscussionEnabled, setTeamDiscussionEnabled] = useState(false);
+  const [ragReviewMode, setRagReviewMode] = useState("essential");
   const [creating, setCreating] = useState(false);
   const [copying, setCopying] = useState(false);
   const [hint, setHint] = useState("");
@@ -207,8 +227,7 @@ export default function OnlineSimplePanel({
             "公网隧道不可用。请先配置 ngrok Token 并保持程序窗口开启；否则请改用局域网联机。",
         );
       }
-      tunnelState = await verify();
-      assertPublicTunnelReady(tunnelState);
+      tunnelState = requirePublicTunnelForInvite(await verify(), tunnelState);
       const link = buildSessionInviteLink(sid, tunnelState.url);
       if (!link) throw new Error("无法生成公网邀请链接");
       if (!link.includes("/join/session/")) {
@@ -255,6 +274,8 @@ export default function OnlineSimplePanel({
           visibility: visibilityMode,
           timing: timingMode,
           tts_enabled: ttsEnabled,
+          team_discussion_enabled: teamDiscussionEnabled,
+          rag_review_mode: ragReviewMode,
           human_timeout_penalty_enabled: timingMode === "limited",
           format: "formal",
           schedule_template: "formal_4v4",
@@ -288,8 +309,7 @@ export default function OnlineSimplePanel({
         tunnelUrl = tunnelState?.url || "";
       }
       if (tunnelUrl || isLoopbackHost(hostname)) {
-        tunnelState = await verify();
-        assertPublicTunnelReady(tunnelState);
+        tunnelState = requirePublicTunnelForInvite(await verify(), tunnelState);
         tunnelUrl = tunnelState.url || tunnelUrl;
       }
       const base =
@@ -416,6 +436,10 @@ export default function OnlineSimplePanel({
                   setTimingMode={setTimingMode}
                   ttsEnabled={ttsEnabled}
                   setTtsEnabled={setTtsEnabled}
+                  teamDiscussionEnabled={teamDiscussionEnabled}
+                  setTeamDiscussionEnabled={setTeamDiscussionEnabled}
+                  ragReviewMode={ragReviewMode}
+                  setRagReviewMode={setRagReviewMode}
                 />
               </>
             )}
@@ -487,6 +511,10 @@ export default function OnlineSimplePanel({
                       setTimingMode={setTimingMode}
                       ttsEnabled={ttsEnabled}
                       setTtsEnabled={setTtsEnabled}
+                      teamDiscussionEnabled={teamDiscussionEnabled}
+                      setTeamDiscussionEnabled={setTeamDiscussionEnabled}
+                      ragReviewMode={ragReviewMode}
+                      setRagReviewMode={setRagReviewMode}
                     />
                     <button
                       type="button"

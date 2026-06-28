@@ -276,7 +276,6 @@ class DebateGraph:
         graph.add_node("opening_evidence_retrieve", self._opening_evidence_retrieve)
         graph.add_node("strategy_plan", self._strategy_plan)
         graph.add_node("stance_decision", self._stance_decision)
-        graph.add_node("reflection", self._reflection)
         graph.add_node("speech_generate", self._speech_generate_streaming)
         graph.add_node("fact_check", self._fact_check)
         graph.add_node("publish_message", self._publish_message)
@@ -287,18 +286,9 @@ class DebateGraph:
         graph.add_edge("rag_retrieve", "opening_evidence_retrieve")
         graph.add_edge("opening_evidence_retrieve", "strategy_plan")
         graph.add_edge("strategy_plan", "stance_decision")
-        graph.add_edge("stance_decision", "reflection")
-        graph.add_edge("reflection", "speech_generate")
+        graph.add_edge("stance_decision", "speech_generate")
         graph.add_edge("speech_generate", "fact_check")
-        graph.add_conditional_edges(
-            "fact_check",
-            lambda state: (
-                "publish_message"
-                if state.get("facts_ok") or state.get("rewrite_count", 0) >= 2
-                else "speech_generate"
-            ),
-            {"publish_message": "publish_message", "speech_generate": "speech_generate"},
-        )
+        graph.add_edge("fact_check", "publish_message")
         graph.add_edge("publish_message", "judge_score")
         graph.add_edge("judge_score", "turn_router")
         graph.add_edge("turn_router", END)
@@ -332,8 +322,6 @@ class DebateGraph:
             "rewrite_count": 0,
             "pipeline_started": False,
             "on_event": on_event,
-            "reflection_draft": None,
-            "reflection_polished": None,
         }
         if self.graph is not None:
             state = await self.graph.ainvoke(state)
@@ -343,7 +331,6 @@ class DebateGraph:
                 self._opening_evidence_retrieve,
                 self._strategy_plan,
                 self._stance_decision,
-                self._reflection,
                 self._speech_generate_streaming,
                 self._fact_check,
                 self._publish_message,
@@ -354,10 +341,7 @@ class DebateGraph:
         return state["debate"]
 
     def _mark(self, debate: DebateState, node_id: str, detail: str = ""):
-        if node_id == "reflection":
-            phase_node = "reflection_draft_finalize"
-        else:
-            phase_node = {
+        phase_node = {
             ("rag_retrieve", "opening_prep"): "opening_evidence_bank",
             ("rag_retrieve", "argument_review"): "rag_retrieve",
             ("rag_retrieve", "rebuttal_review"): "rag_retrieve",
@@ -377,7 +361,7 @@ class DebateGraph:
             ("fact_check", "rebuttal_review"): "rebuttal_effect_check",
             ("fact_check", "closing_review"): "closing_quality_check",
             ("fact_check", "post_match"): "winner_decision",
-            }.get((node_id, debate.phase), node_id)
+        }.get((node_id, debate.phase), node_id)
         active_node = None
         for node in debate.workflow:
             if node.status == "running":
@@ -420,6 +404,9 @@ class DebateGraph:
         agent = self._active_agent(debate)
         await self._emit(state.get("on_event"), self._workflow_progress_payload(debate, agent=agent))
         segment_id = current_segment_id(debate)
+        if getattr(debate, "rag_review_mode", "essential") != "full":
+            state["sources"] = []
+            return state
         if (
             _is_internal_team_phase(debate.phase)
             and segment_id != "opening_evidence_bank"
@@ -704,112 +691,13 @@ class DebateGraph:
         return messages, sources
 
     async def _reflection(self, state: dict) -> dict:
-        """非自由辩论：一轮「草稿→定稿」；自由辩论跳过。"""
+        """Compatibility node kept for old graph references; speeches now stream directly."""
         debate: DebateState = state["debate"]
         on_event: EventCallback | None = state.get("on_event")
         state["reflection_draft"] = None
         state["reflection_polished"] = None
-
-        if state.get("opening_evidence_blocked"):
-            return state
-
-        if debate.phase == "free_debate":
-            self._mark(debate, "reflection", "自由辩论：跳过草稿→定稿反思。")
-            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
-            return state
-
-        if debate.phase == "pre_match":
-            self._mark(debate, "reflection", "赛前主持：跳过草稿→定稿反思。")
-            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
-            return state
-
-        if _is_internal_team_phase(debate.phase):
-            self._mark(debate, "reflection", "队内准备：跳过正式发言反思链。")
-            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
-            return state
-
-        if debate.phase == "post_match":
-            self._mark(debate, "reflection", "裁判终局：跳过辩手草稿反思链。")
-            await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
-            return state
-
-        self._mark(debate, "reflection", "草稿→定稿：内部一轮反思。")
-        agent = self._active_agent(debate)
-        await self._emit(on_event, self._workflow_progress_payload(debate, agent=agent))
-        user_block = self._speech_user_content(debate, state)
-        model = resolve_model(phase=debate.phase, speaker_id=agent.id)
-
-        draft_system = (
-            f"你是{agent.name}的内部辩论撰稿助手，与辩手立场完全一致。"
-            "本轮只输出内部用草稿，绝不作为对评委或对方的终稿宣读。"
-            "用 Markdown 精简写出：核心争点、我方要打的要点、2-3 个论证或事实抓手、预计如何收口。"
-            "总字数约 180-320 字；不要开场寒暄称呼，不要写成完整发言稿。"
-            "禁止编造法规、论文与具体统计数据；证据不足时请写“待查证/常识推断”。"
-        )
-        draft_messages: list[dict[str, str]] = [
-            {"role": "system", "content": draft_system},
-            {"role": "user", "content": user_block},
-        ]
-
-        draft_text = ""
-        try:
-            draft_text = (
-                await chat_completion(
-                    draft_messages,
-                    model=model,
-                    temperature=0.62,
-                    max_tokens=520,
-                    debate_id=debate.id,
-                    operation="reflection_draft",
-                )
-            ).strip()
-        except DeepSeekError:
-            draft_text = ""
-
-        if draft_text:
-            state["reflection_draft"] = draft_text
-        else:
-            state["reflection_polished"] = None
-            return state
-
-        speech_messages, _ = self._speech_messages(debate, state, agent)
-        speech_system = speech_messages[0]["content"]
-        finalize_user = (
-            f"{user_block}\n\n---\n【内部草稿】\n{draft_text}\n---\n"
-            "请将以上草稿发展并改写为本轮要宣读的正式发言终稿（可调整结构与措辞，不要简单复读草稿小标题）。"
-            "须满足与上文 system 角色说明中完全一致的身份、风格、篇幅与 Markdown 要求，并有一句完整收束。"
-        )
-        finalize_messages: list[dict[str, str]] = [
-            {"role": "system", "content": speech_system},
-            {"role": "user", "content": finalize_user},
-        ]
-
-        polished = ""
-        try:
-            polished = (
-                await chat_completion(
-                    finalize_messages,
-                    model=model,
-                    temperature=0.68,
-                    max_tokens=_max_tokens_for_phase(debate.phase),
-                    debate_id=debate.id,
-                    operation="reflection_finalize",
-                )
-            ).strip()
-        except DeepSeekError:
-            polished = ""
-
-        state["reflection_polished"] = polished or None
-
-        await self._emit(
-            on_event,
-            {
-                "type": "reflection_done",
-                "phase": debate.phase,
-                "draft_chars": len(draft_text),
-                "polished_chars": len(state["reflection_polished"] or ""),
-            },
-        )
+        self._mark(debate, "speech_generate", "直接进入一次流式发言。")
+        await self._emit(on_event, self._workflow_progress_payload(debate, agent=self._active_agent(debate)))
         return state
 
     def _speech_chunk_payload(
@@ -859,7 +747,11 @@ class DebateGraph:
                     agent=agent,
                 ),
             )
-            if len(content) >= 80 and not state.get("pipeline_started"):
+            if (
+                getattr(debate, "rag_review_mode", "essential") == "full"
+                and len(content) >= 80
+                and not state.get("pipeline_started")
+            ):
                 state["pipeline_started"] = True
                 asyncio.create_task(self._prepare_next_pipeline(debate, content, on_event))
             await asyncio.sleep(0.035)
@@ -939,6 +831,8 @@ class DebateGraph:
         return completed
 
     async def _prepare_next_pipeline(self, debate: DebateState, partial: str, on_event: EventCallback | None) -> None:
+        if getattr(debate, "rag_review_mode", "essential") != "full":
+            return
         next_id = peek_next_speaker_id(debate)
         if not next_id or next_id == "judge":
             return
@@ -1106,13 +1000,7 @@ class DebateGraph:
         if state.get("rewrite_count", 0) >= 1:
             state["reflection_polished"] = None
 
-        polished: str | None = state.get("reflection_polished")
-        use_reflection_output = bool(polished)
-
-        if use_reflection_output:
-            self._mark(debate, "speech_generate", "播送反思后的定稿发言。")
-        else:
-            self._mark(debate, "speech_generate", "DeepSeek 正在流式生成 Markdown 发言。")
+        self._mark(debate, "speech_generate", "DeepSeek 正在一次流式生成 Markdown 发言。")
         agent = self._active_agent(debate)
         await self._emit(on_event, self._workflow_progress_payload(debate, agent=agent))
         messages, sources = self._speech_messages(debate, state, agent)
@@ -1190,79 +1078,62 @@ class DebateGraph:
             },
         )
 
-        if use_reflection_output and polished:
-            content = strip_model_reasoning(polished)
-            content = await self._complete_if_needed(
-                content=content,
-                messages=messages,
+        try:
+            async for chunk in chat_completion_stream(
+                messages,
                 model=model,
-                on_event=on_event,
-                message_id=message_id,
-                debate=debate,
-                agent=agent,
-            )
-            content = _apply_phase_speech_limits(content, debate)
-            content = await self._emit_precomputed_speech_chunks(
-                text=content,
-                on_event=on_event,
-                message_id=message_id,
-                debate=debate,
-                state=state,
-                agent=agent,
-            )
-        else:
-            try:
-                async for chunk in chat_completion_stream(
-                    messages,
-                    model=model,
-                    temperature=0.75 if debate.phase != "free_debate" else 0.85,
-                    max_tokens=_max_tokens_for_phase(debate.phase),
-                    debate_id=debate.id,
-                    operation="speech_stream",
-                ):
-                    raw_content += chunk
-                    cleaned = strip_model_reasoning(raw_content)
-                    if cleaned == content:
-                        continue
-                    chunk = cleaned[len(content) :]
-                    content = cleaned
-                    await self._emit(
-                        on_event,
-                        self._speech_chunk_payload(
-                            message_id=message_id,
-                            chunk=chunk,
-                            content=content,
-                            debate=debate,
-                            agent=agent,
-                        ),
-                    )
-                    if len(content) >= 80 and not state.get("pipeline_started"):
-                        state["pipeline_started"] = True
-                        asyncio.create_task(self._prepare_next_pipeline(debate, content, on_event))
-            except DeepSeekError as exc:
-                if debate.phase == "free_debate":
-                    content = "对方把“能用”偷换成“会提升”。如果学生只是复制答案，学习能力反而是在退步。"
-                elif agent.side == "affirmative":
-                    content = "主席、各位评委，对方忽略了一个前提：工具不会自动替代思考，关键在于如何使用。"
-                elif agent.side == "judge":
-                    content = "裁判记录：当前回合模型暂不可用，本条仅作中立过程记录，不计入任一方优势。"
-                else:
-                    content = "主席、各位评委，我方要提醒对方：效率提升不等于能力提升。"
-                content += f"\n\n（模型暂不可用：{exc}）"
-                content = strip_model_reasoning(content)
+                temperature=0.75 if debate.phase != "free_debate" else 0.85,
+                max_tokens=_max_tokens_for_phase(debate.phase),
+                debate_id=debate.id,
+                operation="speech_stream",
+            ):
+                raw_content += chunk
+                cleaned = strip_model_reasoning(raw_content)
+                if cleaned == content:
+                    continue
+                chunk = cleaned[len(content) :]
+                content = cleaned
                 await self._emit(
                     on_event,
                     self._speech_chunk_payload(
                         message_id=message_id,
-                        chunk=content,
+                        chunk=chunk,
                         content=content,
                         debate=debate,
                         agent=agent,
                     ),
                 )
-
-        if not (use_reflection_output and polished):
+                if (
+                    getattr(debate, "rag_review_mode", "essential") == "full"
+                    and len(content) >= 80
+                    and not state.get("pipeline_started")
+                ):
+                    state["pipeline_started"] = True
+                    asyncio.create_task(self._prepare_next_pipeline(debate, content, on_event))
+        except DeepSeekError as exc:
+            if debate.phase == "free_debate":
+                content = "对方把“能用”偷换成“会提升”。如果学生只是复制答案，学习能力反而是在退步。"
+            elif agent.side == "affirmative":
+                content = "主席、各位评委，对方忽略了一个前提：工具不会自动替代思考，关键在于如何使用。"
+            elif agent.side == "judge":
+                content = "裁判记录：当前回合模型暂不可用，本条仅作中立过程记录，不计入任一方优势。"
+            else:
+                content = "主席、各位评委，我方要提醒对方：效率提升不等于能力提升。"
+            content += f"\n\n（模型暂不可用：{exc}）"
             content = strip_model_reasoning(content)
+            await self._emit(
+                on_event,
+                self._speech_chunk_payload(
+                    message_id=message_id,
+                    chunk=content,
+                    content=content,
+                    debate=debate,
+                    agent=agent,
+                ),
+            )
+
+        content = strip_model_reasoning(content)
+        if getattr(debate, "rag_review_mode", "essential") == "full":
             content = await self._complete_if_needed(
                 content=content,
                 messages=messages,
@@ -1272,7 +1143,7 @@ class DebateGraph:
                 debate=debate,
                 agent=agent,
             )
-            content = _apply_phase_speech_limits(content, debate)
+        content = _apply_phase_speech_limits(content, debate)
 
         await self._emit(
             on_event,
@@ -1289,11 +1160,6 @@ class DebateGraph:
         )
 
         private_parts = [f"内部策略：{state.get('strategy', '')}"]
-        rd = state.get("reflection_draft")
-        if rd:
-            suffix = "…" if len(rd) > 480 else ""
-            private_parts.append(f"反思草稿：{rd[:480]}{suffix}")
-
         state["draft_message"] = DebateMessage(
             id=message_id,
             debate_id=debate.id,

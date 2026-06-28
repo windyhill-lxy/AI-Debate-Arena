@@ -21,6 +21,8 @@ def _debate() -> DebateState:
         agents=agents,
         workflow=workflow_template(),
         schedule_template="formal_4v4",
+        team_discussion_enabled=True,
+        rag_review_mode="full",
     )
     init_schedule(debate)
     return debate
@@ -388,6 +390,40 @@ async def test_internal_prep_skips_reflection_finalize(monkeypatch) -> None:
 
     await debate_graph.run_turn_streaming(debate)
     assert "reflection_finalize" not in operations
+
+
+@pytest.mark.asyncio
+async def test_public_speech_uses_single_stream_without_reflection_or_continuation(monkeypatch) -> None:
+    debate = _debate()
+    debate.schedule_template = "formal_4v4"
+    debate.rag_review_mode = "essential"
+    init_schedule(debate)
+    for index in range(120):
+        seg = get_segment(debate, index)
+        if seg and seg.id == "neg_rebuttal_2":
+            apply_segment(debate, index)
+            break
+    else:
+        raise AssertionError("missing rebuttal segment")
+    _fill_opening_argument_bank(debate)
+
+    operations: list[str] = []
+
+    async def fail_chat_completion(*_args, **kwargs):
+        operations.append(kwargs.get("operation", ""))
+        raise AssertionError("public speech should not call reflection or continuation chat_completion")
+
+    async def fake_stream(*_args, **kwargs):
+        operations.append(kwargs.get("operation", ""))
+        yield "主席、评委，对方把工具辅助说成能力提升，但复制答案并不等于掌握方法 [NEG-1]。"
+
+    monkeypatch.setattr("app.workflow.debate_graph.chat_completion", fail_chat_completion)
+    monkeypatch.setattr("app.workflow.debate_graph.chat_completion_stream", fake_stream)
+
+    result = await debate_graph.run_turn_streaming(debate)
+
+    assert result.messages[-1].speaker_id == "neg_2"
+    assert operations == ["speech_stream"]
 
 
 @pytest.mark.asyncio

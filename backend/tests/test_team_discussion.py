@@ -24,6 +24,8 @@ def _debate() -> DebateState:
         format="formal",
         agents=default_agents(),
         workflow=workflow_template(),
+        team_discussion_enabled=True,
+        rag_review_mode="full",
     )
     init_schedule(debate)
     for index in range(120):
