@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, clipboard, dialog, shell } = require("electron");
+﻿const { app, BrowserWindow, Menu, clipboard, dialog, shell } = require("electron");
 const { execFile, spawn } = require("child_process");
 const { promisify } = require("util");
 
@@ -10,6 +10,7 @@ const os = require("os");
 
 const BACKEND_PORT = 9000;
 const FRONTEND_PORT = 5173;
+const APP_ID = "com.aidebate.arena.desktop";
 
 const childProcs = [];
 const logStreams = [];
@@ -408,6 +409,7 @@ async function createWindow() {
   const logDir = getLogDir();
   process.env.DEBATE_LOG_DIR = logDir;
   const ready = await waitReady();
+  const windowIcon = path.join(__dirname, "build", "icon.ico");
 
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -415,6 +417,7 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     title: "AI 辩论场",
+    icon: windowIcon,
     show: false,
     autoHideMenuBar: false,
     webPreferences: {
@@ -487,6 +490,10 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
+  if (process.platform === "win32") {
+    app.setAppUserModelId(APP_ID);
+  }
+
   app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();

@@ -60,12 +60,12 @@ class CameraCaptureProfile:
 
 def camera_capture_profile(*, low_performance: bool) -> CameraCaptureProfile:
     if low_performance:
-        return CameraCaptureProfile(width=320, height=180, fps=12, detect_every_frames=36, jpeg_quality=56)
+        return CameraCaptureProfile(width=320, height=180, fps=8, detect_every_frames=24, jpeg_quality=52)
     return CameraCaptureProfile(width=640, height=360, fps=18, detect_every_frames=1, jpeg_quality=72)
 
 
 def preview_write_interval(*, low_performance: bool) -> float:
-    return 0.1 if low_performance else 0.5
+    return 1.0 if low_performance else 0.5
 
 
 class ConfidenceMonitor:

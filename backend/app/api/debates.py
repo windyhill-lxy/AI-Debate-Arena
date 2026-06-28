@@ -32,7 +32,7 @@ from app.models import (
     default_agents,
     workflow_template,
 )
-from app.services.auto_runner import resume_auto, start_auto, stop_auto
+from app.services.auto_runner import resume_auto, run_one_step, start_auto, stop_auto
 from app.services.asr import ASRError, recognize_speech
 from app.services.argument_bank import (
     add_argument_items,
@@ -1500,12 +1500,7 @@ async def host_control_debate(
             resume_auto(debate_id)
         return {"status": "resumed"}
     if action == "next":
-        async def on_event(evt: dict) -> None:
-            await _broadcast_debate_event(debate_id, debate, evt)
-
-        next_state = await debate_graph.run_turn_streaming(debate, on_event=on_event)
-        async with online_room_lock(debate_id):
-            await _persist_and_broadcast(next_state, "debate_stepped")
+        next_state = await run_one_step(debate_id)
         append_ops_event("host_control", "主持人推进下一环节", debate_id=debate_id)
         return {"status": "stepped"}
     raise HTTPException(status_code=400, detail="action 仅支持 pause/resume/next")
@@ -1590,16 +1585,10 @@ async def debate_share_meta(debate_id: str) -> dict:
 @router.post("/{debate_id}/step")
 async def step_debate(debate_id: str, request: Request) -> dict:
     enforce_write_limit(request)
-    doc = await get_debate(debate_id)
-    if doc is None:
+    try:
+        debate = await run_one_step(debate_id)
+    except ValueError:
         raise HTTPException(status_code=404, detail="Debate not found")
-    debate = _state_from_doc(doc)
-
-    async def on_event(evt: dict) -> None:
-        await _broadcast_debate_event(debate_id, debate, evt)
-
-    debate = await debate_graph.run_turn_streaming(debate, on_event=on_event)
-    debate = await _persist_and_broadcast(debate, "debate_stepped")
     return _payload_for_viewer_request(
         debate,
         viewer_side=request.query_params.get("viewer_side"),

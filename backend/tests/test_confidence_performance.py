@@ -14,5 +14,5 @@ def test_classroom_mode_is_the_default_confidence_profile() -> None:
 
 
 def test_preview_writes_are_throttled_for_classroom_mode() -> None:
-    assert preview_write_interval(low_performance=True) <= 0.12
+    assert preview_write_interval(low_performance=True) >= 1.0
     assert preview_write_interval(low_performance=False) >= 0.25

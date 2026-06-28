@@ -367,6 +367,71 @@ async def _attach_tts_audio_and_persist(debate: DebateState) -> float:
     return wait_sec
 
 
+async def run_one_step(debate_id: str) -> DebateState:
+    """Run exactly one debate step through the same lock path as auto mode."""
+    stop_auto(debate_id)
+    async with _runner_lock(debate_id):
+        schedule_tts_after_persist = False
+        async with online_room_lock(debate_id):
+            doc = await get_debate(debate_id)
+            if doc is None:
+                raise ValueError("Debate not found")
+            debate = DebateState.model_validate(doc)
+            if debate.phase == "finished":
+                debate.auto_running = False
+                await _persist(debate)
+                await _broadcast_state(debate_id, "debate_finished", debate)
+                return debate
+            if needs_user_turn(debate):
+                prepare_next_online_user_turn(debate)
+                debate.awaiting_user = True
+                debate.auto_running = False
+                mark_user_wait_start(debate)
+                await _persist(debate)
+                await _broadcast_state(debate_id, "awaiting_user", debate)
+                return debate
+            debate.awaiting_user = False
+            debate.auto_running = False
+            await _persist(debate)
+
+        if is_procedural_segment(debate):
+            agent = next((item for item in debate.agents if item.id == debate.active_speaker_id), None)
+            await _broadcast(
+                debate_id,
+                "workflow_progress",
+                {
+                    "type": "workflow_progress",
+                    "node_id": debate.schedule[debate.schedule_index].id if debate.schedule else "",
+                    "node_label": debate.segment_label,
+                    "node_detail": debate.segment_rules,
+                    "segment_label": debate.segment_label,
+                    "phase": debate.phase,
+                    "speaker_id": debate.active_speaker_id,
+                    "speaker_name": agent.name if agent else "系统推进",
+                    "side": agent.side if agent else "judge",
+                    "position": agent.position if agent else 0,
+                    "schedule_index": debate.schedule_index,
+                    "schedule_total": len(debate.schedule or []),
+                },
+            )
+            debate = await _run_procedural_step(debate)
+        else:
+            debate = await _run_turn_with_events(debate)
+            if debate.messages and should_synthesize_tts(debate, debate.messages[-1]):
+                schedule_tts_after_persist = True
+
+        debate.auto_running = False
+        async with online_room_lock(debate_id):
+            latest_doc = await get_debate(debate_id)
+            if latest_doc is not None:
+                _preserve_live_online_fields(debate, DebateState.model_validate(latest_doc))
+            await _persist(debate)
+            await _broadcast_state(debate_id, "debate_stepped", debate)
+            if schedule_tts_after_persist:
+                _schedule_tts_audio(debate)
+        return debate
+
+
 async def _auto_loop(debate_id: str) -> None:
     async with _runner_lock(debate_id):
         while True:

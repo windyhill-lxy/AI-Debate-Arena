@@ -54,6 +54,46 @@ async def test_auto_runner_releases_room_lock_while_generating_turn(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_run_one_step_uses_auto_runner_lock_path(monkeypatch) -> None:
+    from app.services import auto_runner
+    from app.services.online_room_lock import online_room_lock
+
+    debate = _ai_public_debate()
+    events: list[str] = []
+    lock_states: list[bool] = []
+
+    async def fake_get_debate(_debate_id: str):
+        return debate.model_dump(mode="json")
+
+    def fake_stop_auto(debate_id: str) -> None:
+        events.append(f"stop:{debate_id}")
+
+    async def fake_run_turn_with_events(current: DebateState) -> DebateState:
+        events.append("turn")
+        lock_states.append(online_room_lock(current.id).locked())
+        current.phase = "finished"
+        current.auto_running = True
+        return current
+
+    async def noop_async(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(auto_runner, "stop_auto", fake_stop_auto)
+    monkeypatch.setattr(auto_runner, "get_debate", fake_get_debate)
+    monkeypatch.setattr(auto_runner, "_run_turn_with_events", fake_run_turn_with_events)
+    monkeypatch.setattr(auto_runner, "_persist", noop_async)
+    monkeypatch.setattr(auto_runner, "_broadcast_state", noop_async)
+    monkeypatch.setattr(auto_runner, "_broadcast", noop_async)
+    monkeypatch.setattr(auto_runner, "_schedule_tts_audio", lambda *_args, **_kwargs: None)
+
+    result = await auto_runner.run_one_step(debate.id)
+
+    assert events[:2] == [f"stop:{debate.id}", "turn"]
+    assert lock_states == [False]
+    assert result.auto_running is False
+
+
+@pytest.mark.asyncio
 async def test_run_turn_starts_tts_as_soon_as_speech_stream_ends(monkeypatch) -> None:
     from app.models import DebateMessage
     from app.services import auto_runner

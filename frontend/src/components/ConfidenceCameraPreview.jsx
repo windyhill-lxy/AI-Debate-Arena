@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../utils/apiBase.js";
 
 const STATUS_REFRESH_MS = 3500;
-const PREVIEW_REFRESH_MS = 100;
+const PREVIEW_REFRESH_MS = 1000;
 
 function normalizeMonitorError(message) {
   if (!message) return "";

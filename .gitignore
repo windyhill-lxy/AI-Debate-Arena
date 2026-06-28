@@ -19,6 +19,8 @@ frontend/dist/
 应用程序/release/staging/
 应用程序/release/AI辩论场/
 应用程序/release/*.exe
+应用程序/release/*.rar
+应用程序/release/*.png
 应用程序/assets/frontend-dist/*
 !应用程序/assets/frontend-dist/.gitkeep
 

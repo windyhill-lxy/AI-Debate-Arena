@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "ai-debate-desktop",
   "private": true,
   "version": "1.0.1",
@@ -13,7 +13,8 @@
   },
   "devDependencies": {
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "rcedit": "^5.0.2"
   },
   "build": {
     "appId": "com.aidebate.arena.desktop",
@@ -27,8 +28,10 @@
       "main.cjs",
       "preload.cjs",
       "loading-error.html",
+      "build/icon.ico",
       "package.json"
     ],
+    "afterPack": "after-pack.cjs",
     "extraResources": [
       {
         "from": "../release/staging/app-core",

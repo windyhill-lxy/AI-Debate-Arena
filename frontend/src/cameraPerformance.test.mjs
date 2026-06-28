@@ -12,7 +12,7 @@ assert.match(useLocalCamera, /width:\s*\{\s*ideal:\s*320\s*\}/, "local camera sh
 assert.match(useLocalCamera, /height:\s*\{\s*ideal:\s*240\s*\}/, "local camera should default to 240px height");
 assert.match(useLocalCamera, /frameRate:\s*\{\s*ideal:\s*15,\s*max:\s*15\s*\}/, "local camera should cap frame rate at 15fps");
 
-assert.match(confidencePreview, /PREVIEW_REFRESH_MS\s*=\s*100/, "confidence preview should refresh smoothly without waiting for scoring");
+assert.match(confidencePreview, /PREVIEW_REFRESH_MS\s*=\s*1000/, "confidence preview should stay low-frequency for classroom performance");
 assert.match(confidencePreview, /STATUS_REFRESH_MS\s*=\s*3500/, "confidence status polling should be throttled");
 assert.match(confidencePreview, /document\.hidden/, "confidence preview should pause while page is hidden");
 assert.match(
