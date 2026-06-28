@@ -9,9 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 try:
+    import numpy as np
     import cv2
     import mediapipe as mp
     from mediapipe.tasks.python import vision as mp_vision
@@ -20,6 +19,7 @@ try:
     from mediapipe.tasks.python.vision.core import vision_task_running_mode as mp_running_mode
     from PIL import Image, ImageDraw, ImageFont
 except Exception:  # pragma: no cover - runtime dependency check
+    np = None
     cv2 = None
     mp = None
     mp_vision = None
