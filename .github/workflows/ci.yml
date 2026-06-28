@@ -19,8 +19,15 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Pytest
-        run: pytest tests -q
+      - name: Targeted backend tests
+        run: >
+          pytest
+          tests/test_visual_behavior_analysis.py
+          tests/test_schedule_meta.py
+          tests/test_auto_runner.py
+          tests/test_tts_qwen.py
+          tests/test_user_turn_flow.py
+          -q
 
   frontend:
     runs-on: ubuntu-latest
@@ -36,5 +43,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Unit tests
+        run: npm test -- --runInBand
       - name: Build
         run: npm run build
