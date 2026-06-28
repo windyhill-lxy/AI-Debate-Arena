@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     dashscope_api_key: str | None = None
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/api/v1"
     aliyun_tts_enabled: bool = True
-    aliyun_tts_model: str = "qwen3-tts-instruct-flash"
+    aliyun_tts_model: str = "qwen3-tts-flash"
     aliyun_tts_language_type: str = "Chinese"
     minimax_api_key: str | None = None
     minimax_base_url: str = "https://api.minimax.chat/v1"

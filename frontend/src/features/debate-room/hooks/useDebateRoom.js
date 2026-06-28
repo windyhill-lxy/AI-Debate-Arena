@@ -30,6 +30,7 @@ import {
 import { useDebateRoomSocket } from "./useDebateRoomSocket.js";
 import { buildViewerQuery } from "../visibilityModes.js";
 import { loadStoredParticipant } from "../../../utils/participantStorage.js";
+import { effectiveTtsEnabled } from "../ttsControl.js";
 
 function isDebateSnapshotStale(prev, next) {
   if (!prev || !next) return false;
@@ -140,6 +141,7 @@ export function useDebateRoom() {
   const streamStaleRef = useRef(null);
   const ttsTimeoutRef = useRef(null);
   const ttsEnabledRef = useRef(debate.tts_enabled !== false);
+  const localTtsStoppedRef = useRef(false);
   const speechRecorderRef = useRef(null);
   const localTimer = useRef(null);
   const localRunning = useRef(false);
@@ -193,6 +195,7 @@ export function useDebateRoom() {
     pause: pauseAudio,
     resume: resumeAudio,
     skipCurrent: skipCurrentAudio,
+    skipAll: skipAllAudio,
     clear: clearAudioQueue,
     setDisabled: setAudioDisabled,
     current: currentAudio,
@@ -203,13 +206,17 @@ export function useDebateRoom() {
   } = useAudioQueue();
 
   useEffect(() => {
-    const enabled = debate.tts_enabled !== false;
+    const enabled = effectiveTtsEnabled(debate.tts_enabled, localTtsStoppedRef.current);
     ttsEnabledRef.current = enabled;
     setAudioDisabled(!enabled);
     if (!enabled) {
       setTtsStatus("本场辩论已停止语音朗读与合成");
     }
   }, [debate.tts_enabled, setAudioDisabled]);
+
+  useEffect(() => {
+    localTtsStoppedRef.current = false;
+  }, [debate.id]);
 
   useEffect(() => () => clearTtsTimeout(), [clearTtsTimeout]);
 
@@ -633,8 +640,9 @@ export function useDebateRoom() {
     }
   }, [isLocal, debate.id, reportError]);
 
-  const sendMessage = useCallback(async () => {
-    if (!draft.trim() || !userInputEnabled || messageSending) return;
+  const sendMessage = useCallback(async (contentOverride = null) => {
+    const draftToSend = typeof contentOverride === "string" ? contentOverride : draft;
+    if (!draftToSend.trim() || !userInputEnabled || messageSending) return;
     if (!speechInputState.canSubmit) {
       setStatus(speechInputState.reason || "当前无法提交发言");
       return;
@@ -657,7 +665,7 @@ export function useDebateRoom() {
           side,
           position: participant?.position || 1,
           participant_id: participant?.id,
-          content: draft,
+          content: draftToSend,
         }),
       });
       applyDebate(next);
@@ -684,7 +692,7 @@ export function useDebateRoom() {
         side,
         phase: next.phase,
         segment_label: next.segment_label,
-        content: draft,
+        content: draftToSend,
         sources: [],
       });
       next.awaiting_user = false;
@@ -741,13 +749,15 @@ export function useDebateRoom() {
       const data = await response.json();
       const text = (data.text || "").trim();
       if (!text) throw new Error("未识别到文字");
-      setDraft((current) => (current?.trim() ? `${current.trimEnd()}\n\n${text}` : text));
-      setSpeechStatus(`已识别 ${text.length} 字，可继续修改后提交。`);
+      const nextDraft = draft?.trim() ? `${draft.trimEnd()}\n\n${text}` : text;
+      setDraft(nextDraft);
+      setSpeechStatus(`已识别 ${text.length} 字，正在提交发言并等待 AI 反驳…`);
+      await sendMessage(nextDraft);
     } catch (e) {
       setSpeechStatus(`语音识别失败：${e.message || "请检查麦克风权限与阿里云配置"}`);
       reportError(errorDialogPayload(e, "语音识别失败", "DebateRoom.speechToText", "请检查麦克风权限与阿里云配置"));
     }
-  }, [cleanupSpeechRecorder, debate.id, isLocal, reportError]);
+  }, [cleanupSpeechRecorder, debate.id, draft, isLocal, reportError, sendMessage]);
 
   const startSpeechInput = useCallback(async () => {
     if (!awaitingUser || !userInputEnabled) return;
@@ -941,6 +951,7 @@ export function useDebateRoom() {
   }, [userInputEnabled, awaitingUser, debate.id, userSide, userPosition, draft, reportError]);
 
   const stopTtsSession = useCallback(async () => {
+    localTtsStoppedRef.current = true;
     ttsEnabledRef.current = false;
     clearAudioQueue();
     setAudioDisabled(true);
@@ -960,8 +971,8 @@ export function useDebateRoom() {
   useEffect(() => {
     function onKeyDown(event) {
       if (event.target.matches("textarea, input")) return;
-      if (event.key === "Escape") {
-        skipCurrentAudio();
+    if (event.key === "Escape") {
+        skipAllAudio();
         return;
       }
       if (event.code === "Space" && (currentAudio || audioPaused)) {
@@ -978,7 +989,7 @@ export function useDebateRoom() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [skipCurrentAudio, exportFullHistory, pauseAudio, resumeAudio, currentAudio, audioPaused]);
+  }, [skipAllAudio, exportFullHistory, pauseAudio, resumeAudio, currentAudio, audioPaused]);
 
   return {
     mode,
@@ -1043,6 +1054,7 @@ export function useDebateRoom() {
     pauseAudio,
     resumeAudio,
     skipCurrentAudio,
+    skipAllAudio,
     stopTtsSession,
     resumeDebate,
     sendMessage,

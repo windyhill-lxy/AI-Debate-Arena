@@ -4,14 +4,14 @@ from typing import Any
 
 from app.db.mongo import get_debate, save_debate
 from app.db.redis_cache import cache_publish, cache_set
-from app.models import DebateMode, DebateState
+from app.models import DebateMessage, DebateMode, DebateState
 from app.services.changelog import append_changelog
 from app.services.debate_mode import needs_user_turn, prepare_next_online_user_turn, user_side_for_mode
 from app.services.speech_timeout import mark_user_wait_start
 from app.services.debate_schedule_meta import advance_procedural_turn, is_procedural_segment
 from app.services.online_room_lock import online_room_lock
 from app.services.realtime import manager
-from app.services.tts import TTSError, estimate_playback_seconds, markdown_to_speech_text, synthesize_message_audio
+from app.services.tts import TTSError, estimate_playback_seconds, markdown_to_speech_text, synthesize_message_audio, tts_profile_for_agent
 from app.services.tts_policy import should_synthesize_tts
 from app.workflow.debate_graph import debate_graph
 
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 _tasks: dict[str, asyncio.Task] = {}
 _runner_locks: dict[str, asyncio.Lock] = {}
+_tts_message_tasks: dict[tuple[str, str], asyncio.Task] = {}
+_tts_message_results: dict[tuple[str, str], DebateMessage] = {}
 
 
 def _runner_lock(debate_id: str) -> asyncio.Lock:
@@ -122,29 +124,23 @@ async def _persist(debate: DebateState) -> None:
 
 async def _run_turn_with_events(debate: DebateState) -> DebateState:
     async def on_event(evt: dict[str, Any]) -> None:
+        if evt.get("type") == "speech_end":
+            _schedule_tts_audio_for_event(debate, evt)
         await _broadcast_debate_event(debate, evt)
 
     return await debate_graph.run_turn_streaming(debate, on_event=on_event)
 
 
-async def _attach_tts_audio(debate: DebateState) -> float:
-    if not debate.messages:
-        return 2.0
-    target_message_id = debate.messages[-1].id
-    doc = await get_debate(debate.id)
-    if doc is not None:
-        latest = DebateState.model_validate(doc)
-        if latest.messages and latest.messages[-1].id == target_message_id:
-            debate = latest
+async def _attach_tts_audio_to_message(debate: DebateState, message: DebateMessage) -> float:
     if not debate.tts_enabled:
         return 0.5
-    message = debate.messages[-1]
     if not should_synthesize_tts(debate, message):
         return 0.5
     if message.side not in {"affirmative", "negative", "judge"} or message.audio_url:
         return 2.0
 
     agent = next((item for item in debate.agents if item.id == message.speaker_id), None)
+    tts_profile = tts_profile_for_agent(agent)
     await _broadcast_debate_event(
         debate,
         {
@@ -173,8 +169,27 @@ async def _attach_tts_audio(debate: DebateState) -> float:
             },
         )
 
+    async def on_audio_delta(segment_index: int, audio_url: str) -> None:
+        await _broadcast_debate_event(
+            debate,
+            {
+                "type": "speech_audio_delta",
+                "message_id": message.id,
+                "speaker_id": message.speaker_id,
+                "speaker_name": message.speaker_name,
+                "side": message.side,
+                "phase": message.phase,
+                "segment_label": message.segment_label,
+                "segment_index": segment_index,
+                "audio_url": audio_url,
+                "audio_urls": [audio_url],
+                "voice": tts_profile.voice,
+                "tts_backend": "dashscope_realtime",
+            },
+        )
+
     try:
-        audio = await synthesize_message_audio(message, agent, on_chunk=on_chunk)
+        audio = await synthesize_message_audio(message, agent, on_chunk=on_chunk, on_audio_delta=on_audio_delta)
     except (TTSError, Exception) as exc:
         if not isinstance(exc, TTSError):
             logger.exception("TTS failed for message %s", message.id)
@@ -216,15 +231,108 @@ async def _attach_tts_audio(debate: DebateState) -> float:
             "instructions": message.tts_instructions,
             "expires_at": audio["expires_at"],
             "playback_wait_sec": wait_sec,
+            "tts_backend": audio.get("tts_backend") or "dashscope_http",
+            "streamed_audio_delta_count": audio.get("streamed_audio_delta_count") or 0,
         },
     )
     return wait_sec
+
+
+async def _attach_tts_audio(debate: DebateState) -> float:
+    if not debate.messages:
+        return 2.0
+    target_message_id = debate.messages[-1].id
+    doc = await get_debate(debate.id)
+    if doc is not None:
+        latest = DebateState.model_validate(doc)
+        if latest.messages and latest.messages[-1].id == target_message_id:
+            debate = latest
+    return await _attach_tts_audio_to_message(debate, debate.messages[-1])
+
+
+async def _persist_tts_message_audio(debate_id: str, source_message: DebateMessage) -> bool:
+    if not source_message.audio_url:
+        return False
+    doc = await get_debate(debate_id)
+    if doc is None:
+        return False
+    persisted = DebateState.model_validate(doc)
+    for message in persisted.messages:
+        if message.id == source_message.id:
+            message.audio_url = source_message.audio_url
+            message.audio_urls = source_message.audio_urls
+            message.tts_voice = source_message.tts_voice
+            message.tts_instructions = source_message.tts_instructions
+            await _persist(persisted)
+            await _broadcast_state(debate_id, "debate_audio_attached", persisted)
+            return True
+    return False
+
+
+def _copy_tts_audio_fields(target: DebateMessage, source: DebateMessage) -> None:
+    target.audio_url = source.audio_url
+    target.audio_urls = source.audio_urls
+    target.tts_voice = source.tts_voice
+    target.tts_instructions = source.tts_instructions
+
+
+def _schedule_tts_audio_for_message(debate: DebateState, message: DebateMessage) -> bool:
+    if not debate.tts_enabled or not should_synthesize_tts(debate, message):
+        return False
+    if message.side not in {"affirmative", "negative", "judge"} or message.audio_url:
+        return False
+    key = (debate.id, message.id)
+    existing = _tts_message_tasks.get(key)
+    if existing is not None:
+        result = _tts_message_results.get(key)
+        if result is not None and result.audio_url:
+            _copy_tts_audio_fields(message, result)
+            asyncio.create_task(_persist_tts_message_audio(debate.id, result))
+            return True
+        if existing.done():
+            _tts_message_tasks.pop(key, None)
+        else:
+            return True
+
+    async def run() -> None:
+        try:
+            await _attach_tts_audio_to_message(debate, message)
+            if message.audio_url:
+                _tts_message_results[key] = message
+                await _persist_tts_message_audio(debate.id, message)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("background TTS attach failed for debate %s message %s", debate.id, message.id)
+
+    _tts_message_tasks[key] = asyncio.create_task(run())
+    return True
+
+
+def _schedule_tts_audio_for_event(debate: DebateState, evt: dict[str, Any]) -> bool:
+    content = str(evt.get("content") or "").strip()
+    message_id = str(evt.get("message_id") or "").strip()
+    if not content or not message_id:
+        return False
+    message = DebateMessage(
+        id=message_id,
+        debate_id=debate.id,
+        speaker_id=str(evt.get("speaker_id") or debate.active_speaker_id or ""),
+        speaker_name=str(evt.get("speaker_name") or ""),
+        side=str(evt.get("side") or ""),
+        phase=str(evt.get("phase") or debate.phase),
+        segment_label=str(evt.get("segment_label") or debate.segment_label),
+        content=content,
+    )
+    return _schedule_tts_audio_for_message(debate, message)
 
 
 def _schedule_tts_audio(debate: DebateState) -> None:
     if not debate.messages:
         return
     message_id = debate.messages[-1].id
+    if _schedule_tts_audio_for_message(debate, debate.messages[-1]):
+        return
 
     async def run() -> None:
         try:
@@ -238,20 +346,7 @@ def _schedule_tts_audio(debate: DebateState) -> None:
             updated = next((m for m in latest.messages if m.id == message_id), None)
             if not updated or not updated.audio_url:
                 return
-            doc = await get_debate(debate.id)
-            if doc is None:
-                return
-            persisted = DebateState.model_validate(doc)
-            for message in persisted.messages:
-                if message.id == message_id:
-                    message.audio_url = updated.audio_url
-                    message.audio_urls = updated.audio_urls
-                    message.tts_voice = updated.tts_voice
-                    message.tts_instructions = updated.tts_instructions
-                    persisted.updated_at = latest.updated_at
-                    await _persist(persisted)
-                    await _broadcast_state(debate.id, "debate_audio_attached", persisted)
-                    return
+            await _persist_tts_message_audio(debate.id, updated)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -268,20 +363,7 @@ async def _attach_tts_audio_and_persist(debate: DebateState) -> float:
     updated = next((m for m in debate.messages if m.id == message_id), None)
     if not updated or not updated.audio_url:
         return wait_sec
-    doc = await get_debate(debate.id)
-    if doc is None:
-        return wait_sec
-    persisted = DebateState.model_validate(doc)
-    for message in persisted.messages:
-        if message.id == message_id:
-            message.audio_url = updated.audio_url
-            message.audio_urls = updated.audio_urls
-            message.tts_voice = updated.tts_voice
-            message.tts_instructions = updated.tts_instructions
-            persisted.updated_at = debate.updated_at
-            await _persist(persisted)
-            await _broadcast_state(debate.id, "debate_audio_attached", persisted)
-            break
+    await _persist_tts_message_audio(debate.id, updated)
     return wait_sec
 
 
@@ -319,6 +401,7 @@ async def _auto_loop(debate_id: str) -> None:
                 debate.awaiting_user = False
                 debate.auto_running = True
                 playback_wait = 0.2
+                schedule_tts_after_persist = False
                 await _persist(debate)
 
             try:
@@ -346,7 +429,8 @@ async def _auto_loop(debate_id: str) -> None:
                 else:
                     debate = await _run_turn_with_events(debate)
                     if debate.messages and should_synthesize_tts(debate, debate.messages[-1]):
-                        playback_wait = await _attach_tts_audio_and_persist(debate)
+                        schedule_tts_after_persist = True
+                        playback_wait = 0.8
             except Exception as exc:
                 logger.exception("auto turn failed: %s", exc)
                 debate.auto_running = False
@@ -364,6 +448,8 @@ async def _auto_loop(debate_id: str) -> None:
                     _preserve_live_online_fields(debate, DebateState.model_validate(latest_doc))
                 await _persist(debate)
                 await _broadcast_state(debate_id, "debate_stepped", debate)
+                if schedule_tts_after_persist:
+                    _schedule_tts_audio(debate)
                 append_changelog(
                     f"AI 回合 · {debate.segment_label}",
                     f"房间 `{debate_id}` 完成一步；发言方 `{debate.active_speaker_id}`。",

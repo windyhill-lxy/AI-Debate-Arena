@@ -8,7 +8,7 @@ async def test_llm_usage_aggregates_per_debate() -> None:
     did = "debate-usage-1"
     await record_llm_call(
         did,
-        operation="reflection_draft",
+        operation="argument_bank_title_summary",
         model="m1",
         duration_ms=12.0,
         prompt_tokens=10,
@@ -28,4 +28,4 @@ async def test_llm_usage_aggregates_per_debate() -> None:
     assert snap["total_calls"] == 2
     assert snap["prompt_tokens"] == 10
     assert snap["completion_tokens"] == 70
-    assert snap["operations"]["reflection_draft"] == 1
+    assert snap["operations"]["argument_bank_title_summary"] == 1

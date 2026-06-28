@@ -8,6 +8,7 @@ langgraph
 langchain-core
 python-dotenv
 httpx
+websockets
 pyyaml
 pytest
 pytest-asyncio

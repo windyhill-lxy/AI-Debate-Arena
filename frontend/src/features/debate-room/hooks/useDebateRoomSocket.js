@@ -3,6 +3,7 @@ import { useDebateSocket } from "../../../hooks/useDebateSocket.js";
 import { debaterPositionLabel } from "../../../utils/debateDisplay.js";
 import { debateRequest } from "../api.js";
 import { getOnlineStatusMessage, needsUserTurn } from "../utils.js";
+import { shouldAcceptIncomingTts } from "../ttsControl.js";
 
 function speakerSeatLabel(debate, speakerId, fallback, side) {
   return debaterPositionLabel(speakerId, debate?.agents || []) || (side === "judge" ? "裁判" : fallback || "系统");
@@ -167,7 +168,7 @@ export function useDebateRoomSocket({
     onSpeechAudioStart: (data) => {
       if (handlers.current.ttsEnabledRef?.current === false) return;
       const name = speakerSeatLabel(handlers.current.debateRef.current, data.speaker_id, data.speaker_name, data.side);
-      handlers.current.setTtsStatus(`${name} 正在合成语音（女声 · 快语速）…`);
+      handlers.current.setTtsStatus(`${name} 正在实时合成语音（低延迟 · 快语速）…`);
       handlers.current.armTtsTimeout(name);
     },
     onSpeechAudioProgress: (data) => {
@@ -179,10 +180,19 @@ export function useDebateRoomSocket({
     onSpeechAudio: (data) => {
       const h = handlers.current;
       h.clearTtsTimeout();
-      if (h.ttsEnabledRef?.current === false) return;
+      if (
+        !shouldAcceptIncomingTts({
+          remoteTtsEnabled: h.debateRef.current?.tts_enabled,
+          locallyStopped: h.ttsEnabledRef?.current === false,
+          audioUrl: data.audio_url,
+        })
+      ) {
+        return;
+      }
       const urls = data.audio_urls?.length ? data.audio_urls : [data.audio_url];
+      const backendLabel = data.tts_backend === "dashscope_realtime" ? "实时语音" : "语音";
       h.setTtsStatus(
-        `${speakerSeatLabel(h.debateRef.current, data.speaker_id, data.speaker_name, data.side)} 开始朗读（${data.voice}）` +
+        `${speakerSeatLabel(h.debateRef.current, data.speaker_id, data.speaker_name, data.side)} 开始${backendLabel}朗读（${data.voice}）` +
           (urls.length > 1 ? `，共 ${urls.length} 段` : ""),
       );
       h.setAudioByMessage((current) => ({
@@ -192,13 +202,38 @@ export function useDebateRoomSocket({
           audio_urls: urls,
           voice: data.voice,
           instructions: data.instructions,
+          tts_backend: data.tts_backend,
         },
       }));
       const msg = h.debateRef.current.messages.find((m) => m.id === data.message_id);
-      h.enqueueAudio(urls, {
-        messageId: data.message_id,
+      if (data.streamed_audio_delta_count <= 0 || data.tts_backend !== "dashscope_realtime") {
+        h.enqueueAudio(urls, {
+          messageId: data.message_id,
+          text: msg?.content || "",
+          speakerName: speakerSeatLabel(h.debateRef.current, data.speaker_id, data.speaker_name, data.side),
+        });
+      }
+    },
+    onSpeechAudioDelta: (data) => {
+      const h = handlers.current;
+      if (
+        !shouldAcceptIncomingTts({
+          remoteTtsEnabled: h.debateRef.current?.tts_enabled,
+          locallyStopped: h.ttsEnabledRef?.current === false,
+          audioUrl: data.audio_url,
+        })
+      ) {
+        return;
+      }
+      const msg = h.debateRef.current.messages.find((m) => m.id === data.message_id);
+      h.setTtsStatus(`${speakerSeatLabel(h.debateRef.current, data.speaker_id, data.speaker_name, data.side)} 正在实时朗读（第 ${data.segment_index || 1} 段）`);
+      h.enqueueAudio([data.audio_url], {
+        messageId: `${data.message_id}:rt:${data.segment_index || 1}`,
+        parentMessageId: data.message_id,
         text: msg?.content || "",
         speakerName: speakerSeatLabel(h.debateRef.current, data.speaker_id, data.speaker_name, data.side),
+        voice: data.voice,
+        ttsBackend: data.tts_backend,
       });
     },
     onSpeechAudioError: (data) => {
@@ -287,11 +322,11 @@ export function useDebateRoomSocket({
       if (draftChars != null && polishedChars != null) {
         handlers.current.setPipelineHint({
           type: "reflection_done",
-          nodeLabel: "反思:草稿→定稿",
+          nodeLabel: "发言直出",
           speakerName: speakerSeatLabel(handlers.current.debateRef.current, data.speaker_id, data.speaker_name || "当前 AI", data.side),
           draftChars,
           polishedChars,
-          detail: `反思定稿完成：草稿 ${draftChars} 字，定稿 ${polishedChars} 字。`,
+          detail: `发言准备完成：原稿 ${draftChars} 字，输出 ${polishedChars} 字。`,
         });
       }
     },

@@ -62,10 +62,11 @@ export default function DebateRoom({ leaveGuardRef }) {
   const [leftTab, setLeftTab] = useState(null);
   const [rightTab, setRightTab] = useState(null);
   const [selectedCitation, setSelectedCitation] = useState(null);
+  const [stageHeaderCollapsed, setStageHeaderCollapsed] = useState(false);
   const [compactViewport, setCompactViewport] = useState(() => isCompactViewport());
   const autoTeamSegmentRef = useRef(null);
   const showConfidenceCamera =
-    room.debate.mode !== "ai_autonomous" && room.debate.mode !== "online_match";
+    onlineCameraInitiallyOn && room.debate.mode !== "ai_autonomous" && room.debate.mode !== "online_match";
   const showOnlineCamera =
     !room.isLocal && room.mode === "online_match" && isOnlineDebater(room.participant);
   const peerParticipantIds = useMemo(
@@ -283,6 +284,8 @@ export default function DebateRoom({ leaveGuardRef }) {
         selectedCitation={selectedCitation}
         onCitationSelect={onCitationSelect}
         onCitationClose={onCitationClose}
+        headerCollapsed={stageHeaderCollapsed}
+        onToggleHeaderCollapsed={() => setStageHeaderCollapsed((value) => !value)}
       />
 
       {compactViewport && (
@@ -333,7 +336,7 @@ export default function DebateRoom({ leaveGuardRef }) {
         audioDisabled={room.audioDisabled}
         pauseAudio={room.pauseAudio}
         resumeAudio={room.resumeAudio}
-        skipCurrentAudio={room.skipCurrentAudio}
+        skipCurrentAudio={room.skipAllAudio}
         stopTtsSession={room.stopTtsSession}
         resumeDebate={room.resumeDebate}
         exportFullHistory={room.exportFullHistory}

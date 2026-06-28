@@ -1,12 +1,18 @@
 import asyncio
 import base64
+import json
 import logging
 import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import httpx
+try:
+    import websockets
+except ImportError:  # pragma: no cover - exercised by fallback behavior in deployments
+    websockets = None
 
 from app.core.config import get_settings
 from app.models import AgentRole, DebateMessage
@@ -25,6 +31,8 @@ MAX_TTS_TOTAL_CHARS = 220
 MAX_TTS_CHUNKS = 1
 TTS_HTTP_TIMEOUT = httpx.Timeout(connect=6.0, read=28.0, write=8.0, pool=6.0)
 TTS_CHUNK_DEADLINE_SEC = 32.0
+TTS_REALTIME_DEADLINE_SEC = 18.0
+TTS_REALTIME_SAMPLE_RATE = 24000
 
 
 class TTSError(Exception):
@@ -102,18 +110,102 @@ def build_qwen_tts_request(
     language_type: str,
 ) -> tuple[str, dict]:
     endpoint = f"{base_url.rstrip('/')}/services/aigc/multimodal-generation/generation"
+    parameters = {
+        "voice": voice,
+        "language_type": language_type,
+    }
+    if "instruct" in model.lower() and instructions:
+        parameters["instructions"] = instructions
     payload = {
         "model": model,
         "input": {
             "text": text,
         },
-        "parameters": {
-            "voice": voice,
-            "language_type": language_type,
-            "instructions": instructions,
-        },
+        "parameters": parameters,
     }
     return endpoint, payload
+
+
+def _realtime_model_name(model: str) -> str:
+    if model.endswith("-realtime"):
+        return model
+    if model.startswith("qwen3-tts-") and model.endswith("-flash"):
+        return f"{model}-realtime"
+    if model.startswith("qwen3-tts-") and "-realtime-" not in model:
+        return model.replace("-202", "-realtime-202", 1)
+    return "qwen3-tts-flash-realtime"
+
+
+def build_qwen_realtime_tts_url(*, base_url: str, model: str) -> str:
+    parsed = urlsplit(base_url.rstrip("/"))
+    scheme = "wss" if parsed.scheme in {"http", "https"} else parsed.scheme
+    path = parsed.path
+    if "/api/" in path:
+        path = path.split("/api/", 1)[0]
+    path = f"{path.rstrip('/')}/api-ws/v1/realtime"
+    query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query_items["model"] = _realtime_model_name(model)
+    return urlunsplit((scheme, parsed.netloc, path, urlencode(query_items), ""))
+
+
+def build_qwen_realtime_session_update(
+    *,
+    voice: str,
+    instructions: str,
+    language_type: str,
+    model: str,
+) -> dict:
+    session = {
+        "voice": voice,
+        "output_audio_format": "pcm",
+        "language_type": language_type,
+    }
+    if "instruct" in model.lower() and instructions:
+        session["instructions"] = instructions
+    return {
+        "type": "session.update",
+        "session": session,
+    }
+
+
+def extract_realtime_audio_delta(event: dict) -> str | None:
+    if event.get("type") != "response.audio.delta":
+        return None
+    delta = event.get("delta") or event.get("data")
+    if isinstance(delta, str) and delta:
+        return delta
+    audio = event.get("audio")
+    if isinstance(audio, dict):
+        value = audio.get("data") or audio.get("base64") or audio.get("delta")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _websocket_connect(url: str, **kwargs):
+    if websockets is None:
+        raise TTSError("websockets dependency is not installed")
+    return websockets.connect(url, **kwargs)
+
+
+def _wav_data_url_from_pcm(pcm: bytes, *, sample_rate: int = TTS_REALTIME_SAMPLE_RATE) -> str:
+    byte_rate = sample_rate * 2
+    block_align = 2
+    header = (
+        b"RIFF"
+        + (36 + len(pcm)).to_bytes(4, "little")
+        + b"WAVEfmt "
+        + (16).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + (1).to_bytes(2, "little")
+        + sample_rate.to_bytes(4, "little")
+        + byte_rate.to_bytes(4, "little")
+        + block_align.to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+        + b"data"
+        + len(pcm).to_bytes(4, "little")
+    )
+    return f"data:audio/wav;base64,{base64.b64encode(header + pcm).decode('ascii')}"
 
 
 def _hard_clamp(text: str, limit: int) -> str:
@@ -262,6 +354,93 @@ async def _synthesize_chunk(text: str, profile: TTSProfile, settings) -> dict:
     }
 
 
+async def _synthesize_chunk_realtime(text: str, profile: TTSProfile, settings) -> dict:
+    runtime = load_runtime_settings()
+    dashscope_key = runtime.api_keys.get("dashscope") or settings.dashscope_api_key
+    if not dashscope_key:
+        raise TTSError("DASHSCOPE_API_KEY is not configured")
+    model = _realtime_model_name(settings.aliyun_tts_model)
+    url = build_qwen_realtime_tts_url(
+        base_url=settings.dashscope_base_url,
+        model=settings.aliyun_tts_model,
+    )
+    session_update = build_qwen_realtime_session_update(
+        voice=profile.voice,
+        instructions=profile.instructions,
+        language_type=settings.aliyun_tts_language_type,
+        model=model,
+    )
+    headers = {
+        "Authorization": f"Bearer {dashscope_key}",
+    }
+    pcm_parts: list[bytes] = []
+    trace_id = str(uuid4())
+
+    async def run() -> None:
+        try:
+            connection = _websocket_connect(
+                url,
+                additional_headers=headers,
+                ping_interval=20,
+                close_timeout=5,
+            )
+        except TypeError:
+            connection = _websocket_connect(
+                url,
+                extra_headers=headers,
+                ping_interval=20,
+                close_timeout=5,
+            )
+        async with connection as websocket:
+            await websocket.send(json.dumps(session_update, ensure_ascii=False))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "input_text_buffer.append",
+                        "text": text,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            await websocket.send(json.dumps({"type": "input_text_buffer.commit"}, ensure_ascii=False))
+            await websocket.send(json.dumps({"type": "session.finish"}, ensure_ascii=False))
+
+            async for raw in websocket:
+                if isinstance(raw, bytes):
+                    pcm_parts.append(raw)
+                    continue
+                try:
+                    event = json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                trace = event.get("request_id") or event.get("event_id")
+                if trace:
+                    nonlocal_trace[0] = str(trace)
+                if event.get("type") == "error" or event.get("error"):
+                    error = event.get("error") or {}
+                    message = error.get("message") if isinstance(error, dict) else str(error)
+                    raise TTSError(message or "Qwen realtime TTS error")
+                delta = extract_realtime_audio_delta(event)
+                if delta:
+                    pcm = base64.b64decode(delta)
+                    pcm_parts.append(pcm)
+                    continue
+                if event.get("type") in {"response.done", "response.audio.done", "session.finished"}:
+                    break
+
+    nonlocal_trace = [trace_id]
+    await asyncio.wait_for(run(), timeout=TTS_REALTIME_DEADLINE_SEC)
+    if not pcm_parts:
+        raise TTSError("Qwen realtime TTS did not return audio delta")
+    return {
+        "audio_url": _wav_data_url_from_pcm(b"".join(pcm_parts)),
+        "audio_deltas": [_wav_data_url_from_pcm(part) for part in pcm_parts],
+        "audio_id": nonlocal_trace[0],
+        "expires_at": 0,
+        "backend": "dashscope_realtime",
+    }
+
+
 def clamp_text_for_tts(text: str, max_chars: int = MAX_TTS_TOTAL_CHARS) -> str:
     text = text.strip()
     if len(text) <= max_chars:
@@ -274,6 +453,7 @@ async def synthesize_message_audio(
     agent: AgentRole | None,
     *,
     on_chunk: Callable[[int, int], Awaitable[None] | None] | None = None,
+    on_audio_delta: Callable[[int, str], Awaitable[None] | None] | None = None,
 ) -> dict[str, object]:
     settings = get_settings()
     runtime = load_runtime_settings()
@@ -297,6 +477,8 @@ async def synthesize_message_audio(
     expires_at = 0
     audio_id = ""
     total = len(chunks)
+    backend = "dashscope_http"
+    streamed_audio_delta_count = 0
 
     for index, chunk in enumerate(chunks):
         if on_chunk is not None:
@@ -304,12 +486,19 @@ async def synthesize_message_audio(
             if asyncio.iscoroutine(maybe):
                 await maybe
         try:
-            part = await _synthesize_chunk(chunk, profile, settings)
+            try:
+                part = await _synthesize_chunk_realtime(chunk, profile, settings)
+            except Exception as realtime_exc:
+                logger.warning("Realtime TTS fallback to HTTP for chunk %s: %s", index + 1, realtime_exc)
+                part = await _synthesize_chunk(chunk, profile, settings)
         except (TTSError, asyncio.TimeoutError, httpx.HTTPError) as exc:
             if _should_retry_shorter_chunk(exc, chunk):
                 smaller = _hard_clamp(chunk, max(120, len(chunk) // 2))
                 logger.warning("TTS retry chunk %s: %s -> %s chars", index, len(chunk), len(smaller))
-                part = await _synthesize_chunk(smaller, profile, settings)
+                try:
+                    part = await _synthesize_chunk_realtime(smaller, profile, settings)
+                except Exception:
+                    part = await _synthesize_chunk(smaller, profile, settings)
             else:
                 if isinstance(exc, asyncio.TimeoutError):
                     raise TTSError(f"TTS 请求超时（第 {index + 1}/{total} 段）") from exc
@@ -317,8 +506,15 @@ async def synthesize_message_audio(
                     raise TTSError(f"TTS 网络错误（第 {index + 1}/{total} 段）: {exc}") from exc
                 raise
         audio_urls.append(str(part["audio_url"]))
+        for audio_delta_url in part.get("audio_deltas", []) or []:
+            streamed_audio_delta_count += 1
+            if on_audio_delta is not None:
+                maybe_delta = on_audio_delta(streamed_audio_delta_count, str(audio_delta_url))
+                if asyncio.iscoroutine(maybe_delta):
+                    await maybe_delta
         expires_at = int(part.get("expires_at") or expires_at)
         audio_id = str(part.get("audio_id") or audio_id)
+        backend = str(part.get("backend") or "dashscope_http")
 
     return {
         "audio_url": audio_urls[0],
@@ -331,4 +527,6 @@ async def synthesize_message_audio(
         "tts_chunk_count": len(chunks),
         "playback_wait_sec": estimate_playback_seconds(full_text, len(chunks)),
         "truncated_for_tts": len(raw_text) > len(full_text),
+        "tts_backend": backend,
+        "streamed_audio_delta_count": streamed_audio_delta_count,
     }

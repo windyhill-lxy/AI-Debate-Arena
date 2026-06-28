@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { stripMarkdownForSubtitle } from "../utils/debateDisplay.js";
+import { canStartQueuedAudio } from "./audioQueueControl.js";
 
 /**
  * 顺序播放 TTS，避免重叠；支持暂停/继续/跳过/停止，不影响辩论主流程。
@@ -55,8 +56,17 @@ export function useAudioQueue() {
     });
   }, []);
 
-  const playNext = useCallback(() => {
-    if (playingRef.current || disabledRef.current || pausedRef.current) return;
+  const playNext = useCallback((options = {}) => {
+    const force = options.force === true;
+    if (!force && !canStartQueuedAudio({
+      playing: playingRef.current,
+      disabled: disabledRef.current,
+      paused: pausedRef.current,
+      hasActiveAudio: Boolean(audioRef.current),
+    })) {
+      return;
+    }
+    if (force && (disabledRef.current || pausedRef.current)) return;
 
     const next = queueRef.current.shift();
     setQueueLength(queueRef.current.length);
@@ -72,7 +82,9 @@ export function useAudioQueue() {
     playingRef.current = true;
     setCurrent(next);
 
-    stopActiveAudio();
+    if (force) {
+      stopActiveAudio();
+    }
 
     const audio = new Audio(next.url);
     audioRef.current = audio;
@@ -177,7 +189,7 @@ export function useAudioQueue() {
       return;
     }
     if (!playingRef.current && queueRef.current.length) {
-      playNext();
+      playNext({ force: true });
     }
   }, [playNext]);
 
@@ -189,8 +201,20 @@ export function useAudioQueue() {
     playingRef.current = false;
     setCurrent(null);
     setQueueLength(queueRef.current.length);
-    playNext();
+    playNext({ force: true });
   }, [playNext, stopActiveAudio]);
+
+  const skipAll = useCallback(() => {
+    generationRef.current += 1;
+    queueRef.current = [];
+    pausedRef.current = false;
+    setIsPaused(false);
+    stopActiveAudio();
+    playingRef.current = false;
+    setCurrent(null);
+    setQueueLength(0);
+    setSubtitle({ text: "", progress: 0, speakerName: "", visibleChars: 0, messageId: null });
+  }, [stopActiveAudio]);
 
   const clear = useCallback(() => {
     generationRef.current += 1;
@@ -225,6 +249,7 @@ export function useAudioQueue() {
     pause,
     resume,
     skipCurrent,
+    skipAll,
     clear,
     setDisabled,
     current,
