@@ -239,7 +239,7 @@ def test_low_performance_camera_profile_is_low_frequency_and_lightweight() -> No
 def test_camera_preview_frame_does_not_burn_scores_into_video() -> None:
     from pathlib import Path
 
-    source = Path("backend/app/services/confidence_monitor.py").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parents[1] / "app/services/confidence_monitor.py").read_text(encoding="utf-8")
 
     assert "自信度 {int(self.display_scores.confidence" not in source
     assert "眼神 {int(self.display_scores.eye" not in source
