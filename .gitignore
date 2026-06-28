@@ -26,6 +26,8 @@ frontend/dist/
 logs/
 data/*.sqlite
 data/*.jsonl
+data/conversation_sessions.md
+data/confidence_sessions/
 backend/data/
 *.log
 *.tmp

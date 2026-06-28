@@ -24,7 +24,8 @@
 ```
 AI辩论项目/
 ├── PROJECT_INDEX.md          # 本文件：项目索引
-├── CHANGELOG_CONVERSATIONS.md # 每次对话/会话更新记录
+├── CHANGELOG_CONVERSATIONS.md # 人工维护的产品更新记录
+├── data/                      # 本地运行数据与自动会话记录（不提交）
 ├── backend/
 │   └── app/
 │       ├── main.py

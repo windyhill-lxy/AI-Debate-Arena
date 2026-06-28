@@ -5,6 +5,7 @@ from app.core.config import get_settings
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CHANGELOG_FILE = _PROJECT_ROOT / "CHANGELOG_CONVERSATIONS.md"
+SESSION_LOG_FILE = _PROJECT_ROOT / "data" / "conversation_sessions.md"
 INDEX_FILE = _PROJECT_ROOT / "PROJECT_INDEX.md"
 
 
@@ -14,11 +15,12 @@ def _now_label() -> str:
 
 def append_changelog(title: str, body: str) -> None:
     line = f"\n## {_now_label()} · {title}\n\n{body.strip()}\n"
-    if CHANGELOG_FILE.exists():
-        CHANGELOG_FILE.write_text(CHANGELOG_FILE.read_text(encoding="utf-8") + line, encoding="utf-8")
+    SESSION_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if SESSION_LOG_FILE.exists():
+        SESSION_LOG_FILE.write_text(SESSION_LOG_FILE.read_text(encoding="utf-8") + line, encoding="utf-8")
     else:
-        CHANGELOG_FILE.write_text(
-            "# 对话与功能更新记录\n\n本文件记录每次辩论会话与重要功能变更。\n" + line,
+        SESSION_LOG_FILE.write_text(
+            "# 本地辩论会话记录\n\n本文件由后端自动追加，仅作为本机运行日志，不提交到 Git。\n" + line,
             encoding="utf-8",
         )
 
@@ -50,7 +52,8 @@ def ensure_project_index() -> None:
 | `backend/app/services/changelog.py` | 更新日志写入 |
 | `frontend/src/pages/Home.jsx` | 首页（模式选择） |
 | `frontend/src/pages/DebateRoom.jsx` | 辩论室 |
-| `CHANGELOG_CONVERSATIONS.md` | 每次对话/更新记录 |
+| `CHANGELOG_CONVERSATIONS.md` | 人工维护的产品更新记录 |
+| `data/conversation_sessions.md` | 本地自动追加的辩论会话记录（不提交） |
 
 ## 辩论模式
 
