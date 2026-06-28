@@ -12,9 +12,19 @@ assert.match(useLocalCamera, /width:\s*\{\s*ideal:\s*320\s*\}/, "local camera sh
 assert.match(useLocalCamera, /height:\s*\{\s*ideal:\s*240\s*\}/, "local camera should default to 240px height");
 assert.match(useLocalCamera, /frameRate:\s*\{\s*ideal:\s*15,\s*max:\s*15\s*\}/, "local camera should cap frame rate at 15fps");
 
-assert.match(confidencePreview, /PREVIEW_REFRESH_MS\s*=\s*1200/, "confidence preview should refresh near 1fps");
-assert.match(confidencePreview, /STATUS_REFRESH_MS\s*=\s*2500/, "confidence status polling should be throttled");
+assert.match(confidencePreview, /PREVIEW_REFRESH_MS\s*=\s*2200/, "confidence preview should refresh below 0.5fps");
+assert.match(confidencePreview, /STATUS_REFRESH_MS\s*=\s*3500/, "confidence status polling should be throttled");
 assert.match(confidencePreview, /document\.hidden/, "confidence preview should pause while page is hidden");
+assert.match(
+  confidencePreview,
+  /confidence-camera__readout/,
+  "multidimensional scores should render below the video viewport",
+);
+const viewportStart = confidencePreview.indexOf('className="confidence-camera__viewport"');
+const readoutStart = confidencePreview.indexOf('className="confidence-camera__readout"');
+assert.ok(viewportStart > 0 && readoutStart > viewportStart, "readout should render after the video viewport");
+const viewportMarkup = confidencePreview.slice(viewportStart, readoutStart);
+assert.doesNotMatch(viewportMarkup, /计分预估|综合|眼神|手势/, "scores should not be part of the in-video markup");
 
 assert.match(home, /useState\(true\)/, "home camera low performance mode should default on");
 assert.match(floating, /low_performance:\s*true/, "floating camera toggle should keep classroom mode on");

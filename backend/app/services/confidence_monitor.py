@@ -59,12 +59,12 @@ class CameraCaptureProfile:
 
 def camera_capture_profile(*, low_performance: bool) -> CameraCaptureProfile:
     if low_performance:
-        return CameraCaptureProfile(width=424, height=240, fps=12, detect_every_frames=3, jpeg_quality=64)
+        return CameraCaptureProfile(width=320, height=180, fps=8, detect_every_frames=6, jpeg_quality=56)
     return CameraCaptureProfile(width=640, height=360, fps=18, detect_every_frames=1, jpeg_quality=72)
 
 
 def preview_write_interval(*, low_performance: bool) -> float:
-    return 0.85 if low_performance else 0.3
+    return 2.2 if low_performance else 0.5
 
 
 class ConfidenceMonitor:
@@ -695,49 +695,8 @@ class ConfidenceMonitor:
                         gesture_event=gesture_event,
                     )
 
-                overlay = frame.copy()
-                cv2.rectangle(overlay, (0, 0), (620, 225), (0, 0, 0), -1)
-                frame = cv2.addWeighted(overlay, 0.5, frame, 0.5, 0)
-
-                frame = self._draw_text(
-                    frame,
-                    f"自信度 {int(self.display_scores.confidence * 100)}%  情绪 {self.display_scores.emotion}",
-                    (15, 38),
-                    (0, 255, 0),
-                    22,
-                )
-                frame = self._draw_text(
-                    frame,
-                    f"眼神 {int(self.display_scores.eye * 100)}%  手势 {int(self.display_scores.gesture * 100)}%  姿态 {int(self.display_scores.posture * 100)}%",
-                    (15, 76),
-                    (255, 255, 255),
-                    17,
-                )
-                frame = self._draw_text(
-                    frame,
-                    f"强度 {int(self.display_scores.arousal * 100)}%  稳定 {int(self.display_scores.stability * 100)}%  状态 {self.display_scores.delivery}",
-                    (15, 106),
-                    (255, 255, 255),
-                    17,
-                )
-                face_status = "人脸：已检测" if has_face else "人脸：未检测"
-                frame = self._draw_text(
-                    frame,
-                    face_status,
-                    (15, 136),
-                    (90, 255, 120) if has_face else (180, 180, 180),
-                    17,
-                )
-                frame = self._draw_text(frame, self.display_scores.feedback, (15, 166), (0, 0, 255), 17)
-                status = "关键点显示：开启" if self.show_landmarks else "关键点显示：关闭"
-                frame = self._draw_text(frame, f"[S] {status}", (15, 195), (200, 200, 200), 15)
-
                 if has_face:
                     self._draw_face_box(frame, face_landmarks)
-                if raised_hand:
-                    frame = self._draw_text(frame, "举手发言", (440, 76), (0, 255, 255), 20)
-                if gesture_event:
-                    frame = self._draw_text(frame, f"手势：{gesture_event}", (440, 110), (0, 220, 255), 18)
 
                 if self.show_landmarks and has_person:
                     self._draw_selected_landmarks(

@@ -71,6 +71,9 @@ def test_timeout_penalty_applies_once_for_late_human_speech() -> None:
 
 @pytest.mark.asyncio
 async def test_internal_prep_user_message_does_not_apply_timeout_penalty(client: AsyncClient) -> None:
+    from app.db.mongo import get_debate, save_debate
+    from app.services.debate_schedule import apply_segment, get_segment
+
     create = await client.post(
         "/api/debates",
         json={
@@ -82,7 +85,16 @@ async def test_internal_prep_user_message_does_not_apply_timeout_penalty(client:
         },
     )
     debate_id = create.json()["id"]
-    await client.post(f"/api/debates/{debate_id}/step")
+    doc = await get_debate(debate_id)
+    debate = DebateState.model_validate(doc)
+    for index in range(120):
+        segment = get_segment(debate, index)
+        if segment and segment.id == "opening_task_assign":
+            apply_segment(debate, index)
+            break
+    else:
+        raise AssertionError("missing opening_task_assign segment")
+    await save_debate(debate.model_dump(mode="json"))
     before = (await client.get(f"/api/debates/{debate_id}")).json()
 
     posted = await client.post(

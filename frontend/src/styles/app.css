@@ -1006,6 +1006,11 @@ button {
   color: #6a5645;
 }
 
+.confidence-camera__readout {
+  display: grid;
+  gap: 8px;
+}
+
 .confidence-camera__scores {
   display: flex;
   flex-wrap: wrap;
@@ -1019,6 +1024,51 @@ button {
   color: #4f3f33;
   font-size: 12px;
   line-height: 1.25;
+}
+
+.confidence-camera__realtime-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.confidence-camera__realtime-grid span {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(95, 111, 128, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 252, 246, 0.72);
+  color: #4f3f33;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.confidence-camera__realtime-grid strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #7c6048;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.confidence-camera__advice,
+.confidence-camera__score-note {
+  margin: 0;
+  color: #5f4f42;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.confidence-camera__advice {
+  padding: 8px 9px;
+  border-left: 3px solid rgba(55, 112, 86, 0.45);
+  border-radius: 8px;
+  background: rgba(62, 128, 93, 0.08);
+}
+
+.confidence-camera__score-note {
+  color: #7a6859;
 }
 
 .composer-phase-hint {
@@ -1099,6 +1149,13 @@ button {
 
 .export-md-btn:hover {
   background: #fff2e6;
+}
+
+.export-md-btn--icon {
+  width: 36px;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
 }
 
 .center-stage--main .message-board--main {
@@ -4922,6 +4979,39 @@ body {
 
 .center-stage--speech-first .composer-actions button {
   min-height: 36px;
+}
+
+.center-stage.center-stage--header-collapsed .center-stage__meta {
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 14px;
+  gap: 10px;
+}
+
+.center-stage.center-stage--header-collapsed .center-stage__topic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.center-stage.center-stage--header-collapsed .center-stage__topic .eyebrow {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.center-stage.center-stage--header-collapsed .center-stage__topic h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.center-stage.center-stage--header-collapsed .center-stage__tools {
+  flex-direction: row;
+  align-items: center;
 }
 
 .debate-dock {

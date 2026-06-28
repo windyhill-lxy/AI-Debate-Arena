@@ -157,6 +157,54 @@ def test_visual_summary_payload_contains_multidimensional_strategy() -> None:
     assert payload["strategy_mode"] == "aggressive_attack"
 
 
+def test_confidence_status_payload_exposes_live_multidimensional_scoring() -> None:
+    from app.services.confidence_monitor_manager import ConfidenceMonitorStatus, status_payload
+
+    status = ConfidenceMonitorStatus(
+        running=True,
+        pid=123,
+        available=True,
+        missing_dependencies=[],
+        latest_sample={
+            "has_face": True,
+            "has_pose": True,
+            "has_hand": True,
+            "confidence": 0.83,
+            "eye": 0.78,
+            "gesture": 0.62,
+            "posture": 0.74,
+            "arousal": 0.33,
+            "stability": 0.81,
+            "gesture_event": "open_palm",
+            "emotion": "平静",
+        },
+        visual_summary=summarize_visual_samples(
+            [
+                {
+                    "has_face": True,
+                    "has_pose": True,
+                    "has_hand": True,
+                    "confidence": 0.83,
+                    "eye": 0.78,
+                    "gesture": 0.62,
+                    "posture": 0.74,
+                    "arousal": 0.33,
+                    "stability": 0.81,
+                    "gesture_event": "open_palm",
+                    "emotion": "平静",
+                }
+            ]
+        ).as_payload(),
+    )
+
+    payload = status_payload(status)
+
+    assert payload["visual_summary"]["sample_count"] == 1
+    assert payload["visual_summary"]["score_delta"] > 0
+    assert payload["visual_summary"]["dimensions"]["posture"] == pytest.approx(0.74)
+    assert "表达状态" in payload["confidence_reliability_hint"]
+
+
 def test_ai_prompt_includes_camera_strategy_hint_for_opponent() -> None:
     debate = _debate()
     debate.camera_strategy_hints = {
@@ -172,3 +220,26 @@ def test_ai_prompt_includes_camera_strategy_hint_for_opponent() -> None:
 
     assert "摄像头表达状态提示" in content
     assert "冷静拆出逻辑漏洞" in content
+
+
+def test_low_performance_camera_profile_is_low_frequency_and_lightweight() -> None:
+    from app.services.confidence_monitor import camera_capture_profile, preview_write_interval
+
+    profile = camera_capture_profile(low_performance=True)
+
+    assert profile.width <= 320
+    assert profile.height <= 180
+    assert profile.fps <= 8
+    assert profile.detect_every_frames >= 6
+    assert profile.jpeg_quality <= 58
+    assert preview_write_interval(low_performance=True) >= 2.0
+
+
+def test_camera_preview_frame_does_not_burn_scores_into_video() -> None:
+    from pathlib import Path
+
+    source = Path("backend/app/services/confidence_monitor.py").read_text(encoding="utf-8")
+
+    assert "自信度 {int(self.display_scores.confidence" not in source
+    assert "眼神 {int(self.display_scores.eye" not in source
+    assert "本次表达计分" not in source

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../utils/apiBase.js";
 
-const STATUS_REFRESH_MS = 2500;
-const PREVIEW_REFRESH_MS = 1200;
+const STATUS_REFRESH_MS = 3500;
+const PREVIEW_REFRESH_MS = 2200;
 
 function normalizeMonitorError(message) {
   if (!message) return "";
@@ -16,6 +16,26 @@ function normalizeMonitorError(message) {
 
 function percent(value) {
   return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function scoreText(value) {
+  const n = Number(value || 0);
+  if (!n) return "+0.00";
+  return `${n > 0 ? "+" : ""}${n.toFixed(2)}`;
+}
+
+function gestureText(counts = {}) {
+  const names = {
+    shrug: "摊手",
+    pointing: "指人",
+    chop: "切分手势",
+    fast_wave: "快速挥手",
+    open_palm: "开放手势",
+    raised_hand: "举手",
+  };
+  const rows = Object.entries(counts || {}).filter(([, count]) => Number(count) > 0);
+  if (!rows.length) return "未检测到明显动作";
+  return rows.map(([key, count]) => `${names[key] || key}x${count}`).join("、");
 }
 
 /**
@@ -95,9 +115,21 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
 
   const sample = monitorStatus?.latest_sample;
   const summary = monitorStatus?.visual_summary || sample?.visual_summary || {};
+  const dimensions = summary?.dimensions || {};
   const faceDetected = Boolean(sample?.has_face);
   const confidence = Number(sample?.confidence || 0);
   const level = confidence >= 0.8 ? "A 优秀" : confidence >= 0.65 ? "B 良好" : confidence >= 0.45 ? "C 中等" : "D 待提升";
+  const reliabilityLabel = {
+    high: "高",
+    medium: "中",
+    low: "低",
+    none: "无",
+  }[monitorStatus?.confidence_reliability || summary?.reliability] || "低";
+  const expression = `${summary?.confidence_label || "未知"} / ${summary?.emotion || sample?.emotion || "未知"}`;
+  const motion = gestureText(summary?.gesture_counts);
+  const advice = monitorStatus?.fixed_realtime_hint || summary?.score_reason || monitorStatus?.confidence_reliability_hint || "";
+  const scoreEstimate = scoreText(summary?.score_delta);
+  const sampleCount = Number(summary?.sample_count || 0);
   const displayError = normalizeMonitorError(monitorStatus?.last_error || inlineError);
   const overlayText = displayError
     ? displayError
@@ -132,15 +164,50 @@ export default function ConfidenceCameraPreview({ enabled = true, className = ""
         </p>
       </div>
       {!compact && (
-        <div className="confidence-camera__scores">
-          <span>自信度 {level}</span>
-          <span>眼神 {percent(sample?.eye)}</span>
-          <span>手势 {percent(sample?.gesture)}</span>
-          <span>姿态 {percent(sample?.posture)}</span>
-          <span>强度 {percent(sample?.arousal)}</span>
-          <span>稳定 {percent(sample?.stability)}</span>
-          {summary?.delivery && <span>状态 {summary.delivery}</span>}
-          {summary?.emotion && <span>情绪 {summary.emotion}</span>}
+        <div className="confidence-camera__readout">
+          <div className="confidence-camera__realtime-grid" aria-label="摄像头实时多维数据">
+            <span>
+              <strong>神态</strong>
+              {expression}
+            </span>
+            <span>
+              <strong>动作</strong>
+              {motion}
+            </span>
+            <span>
+              <strong>姿态</strong>
+              {percent(dimensions.posture ?? sample?.posture)}
+            </span>
+            <span>
+              <strong>眼神</strong>
+              {percent(dimensions.eye ?? sample?.eye)}
+            </span>
+            <span>
+              <strong>强度</strong>
+              {percent(dimensions.arousal ?? sample?.arousal)}
+            </span>
+            <span>
+              <strong>稳定</strong>
+              {percent(dimensions.stability ?? sample?.stability)}
+            </span>
+            <span>
+              <strong>可信度</strong>
+              {reliabilityLabel} · {sampleCount} 帧
+            </span>
+            <span>
+              <strong>计分预估</strong>
+              {scoreEstimate}
+            </span>
+          </div>
+          <p className="confidence-camera__advice">
+            {advice || "正在累积神态、动作、姿态和情绪数据。发言结束后计入本轮分数。"}
+          </p>
+          <p className="confidence-camera__score-note">发言结束后计入本轮分数，并影响对手下一轮策略提示。</p>
+          <div className="confidence-camera__scores">
+            <span>自信度 {level}</span>
+            <span>综合 {percent(sample?.confidence)}</span>
+            {summary?.delivery && <span>状态 {summary.delivery}</span>}
+          </div>
         </div>
       )}
     </section>

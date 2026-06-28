@@ -1318,6 +1318,11 @@
   color: #6a5645;
 }
 
+.confidence-camera__readout {
+  display: grid;
+  gap: 8px;
+}
+
 .confidence-camera__scores {
   display: flex;
   flex-wrap: wrap;
