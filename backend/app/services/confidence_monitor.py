@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,12 +60,12 @@ class CameraCaptureProfile:
 
 def camera_capture_profile(*, low_performance: bool) -> CameraCaptureProfile:
     if low_performance:
-        return CameraCaptureProfile(width=320, height=180, fps=8, detect_every_frames=6, jpeg_quality=56)
+        return CameraCaptureProfile(width=320, height=180, fps=12, detect_every_frames=36, jpeg_quality=56)
     return CameraCaptureProfile(width=640, height=360, fps=18, detect_every_frames=1, jpeg_quality=72)
 
 
 def preview_write_interval(*, low_performance: bool) -> float:
-    return 1.0 if low_performance else 0.5
+    return 0.1 if low_performance else 0.5
 
 
 class ConfidenceMonitor:
@@ -108,6 +109,10 @@ class ConfidenceMonitor:
         self._base_font = self._load_font()
         self._session_start = time.time()
         self._last_preview_write_time = 0.0
+        self._latest_frame_lock = threading.Lock()
+        self._latest_frame: Any | None = None
+        self._latest_frame_index = 0
+        self._capture_stop = threading.Event()
 
     def _append_sample(
         self,
@@ -166,6 +171,34 @@ class ConfidenceMonitor:
             self._last_preview_write_time = now
         except Exception:
             pass
+
+    def _store_latest_frame(self, frame, frame_index: int) -> None:
+        with self._latest_frame_lock:
+            self._latest_frame = frame.copy()
+            self._latest_frame_index = frame_index
+
+    def _read_latest_frame(self) -> tuple[Any | None, int]:
+        with self._latest_frame_lock:
+            if self._latest_frame is None:
+                return None, self._latest_frame_index
+            return self._latest_frame.copy(), self._latest_frame_index
+
+    def _capture_preview_loop(self, cap) -> None:
+        frame_count = 0
+        frame_delay = 1.0 / max(1, self.capture_profile.fps)
+        while not self._capture_stop.is_set():
+            started_at = time.time()
+            ret, frame = cap.read()
+            if not ret:
+                time.sleep(0.03)
+                continue
+            frame = cv2.flip(frame, 1)
+            frame_count += 1
+            self._store_latest_frame(frame, frame_count)
+            self._write_preview_frame(frame, time.time())
+            remaining = frame_delay - (time.time() - started_at)
+            if remaining > 0:
+                time.sleep(remaining)
 
     @staticmethod
     def _dependency_error() -> RuntimeError:
@@ -587,6 +620,86 @@ class ConfidenceMonitor:
             feedback=feedback,
         )
 
+    def _analyze_frame(self, frame, holistic, timestamp_ms: int) -> int:
+        rgb = np.ascontiguousarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        mp_image = mp_image_module.Image(image_format=mp_image_module.ImageFormat.SRGB, data=rgb)
+        timestamp_ms += max(1, int(1000 / max(1, self.capture_profile.fps))) * self.capture_profile.detect_every_frames
+        results = holistic.detect_for_video(mp_image, timestamp_ms)
+
+        face_landmarks = results.face_landmarks or []
+        pose_landmarks = results.pose_landmarks or []
+        left_hand = results.left_hand_landmarks or []
+        right_hand = results.right_hand_landmarks or []
+
+        has_face = len(face_landmarks) > 0
+        has_pose = len(pose_landmarks) > 0
+        has_hand = len(left_hand) > 0 or len(right_hand) > 0
+        has_person = has_face or has_pose or has_hand
+
+        now = time.time()
+        hand_landmarks = left_hand if left_hand else right_hand
+        should_refresh_scores = now - self.last_update_time >= self.feedback_interval
+
+        if not has_person:
+            if self.no_person_start_time is None:
+                self.no_person_start_time = now
+            elif now - self.no_person_start_time >= self.no_person_duration:
+                self.person_detected = False
+                self.prev_hand_signature = None
+                self.prev_pose_signature = None
+                self.prev_face_signature = None
+                self.gesture_ema = 0.6
+                self.motion_ema = 0.0
+                self.lower_bounds = self._refresh_lower_bounds()
+                self.display_scores = DisplayScores(feedback="未检测到人体，请进入画面中央")
+            if should_refresh_scores:
+                self.last_update_time = now
+        else:
+            self.no_person_start_time = None
+            if not self.person_detected:
+                self.lower_bounds = self._refresh_lower_bounds()
+            self.person_detected = True
+
+            gesture = self._gesture_smoothness(hand_landmarks, pose_landmarks)
+            gesture_event = self._gesture_event(pose_landmarks, hand_landmarks) if has_person else ""
+            if should_refresh_scores:
+                self._update_scores(
+                    face_landmarks=face_landmarks,
+                    pose_landmarks=pose_landmarks,
+                    hand_landmarks=hand_landmarks,
+                    gesture_event=gesture_event,
+                    gesture_smoothness=gesture,
+                )
+                self.last_update_time = now
+            else:
+                self._update_body_motion(face_landmarks=face_landmarks, pose_landmarks=pose_landmarks)
+
+        raised_hand = bool(has_person and self._detect_raise_hand(pose_landmarks, hand_landmarks))
+        gesture_event = self._gesture_event(pose_landmarks, hand_landmarks) if has_person else ""
+        if should_refresh_scores:
+            self._append_sample(
+                has_person=has_person,
+                has_face=has_face,
+                has_pose=has_pose,
+                has_hand=has_hand,
+                raised_hand=raised_hand,
+                gesture_event=gesture_event,
+            )
+
+        if has_face:
+            self._draw_face_box(frame, face_landmarks)
+
+        if self.show_landmarks and has_person:
+            self._draw_selected_landmarks(
+                frame,
+                face_landmarks=face_landmarks,
+                pose_landmarks=pose_landmarks,
+                left_hand_landmarks=left_hand,
+                right_hand_landmarks=right_hand,
+            )
+
+        return timestamp_ms
+
     def run(self) -> None:
         if cv2 is None or mp_image_module is None:
             raise self._dependency_error()
@@ -613,13 +726,36 @@ class ConfidenceMonitor:
         print("自信度识别已启动：网页预览模式。" if not self.show_window else "自信度识别已启动：按 q 退出。")
 
         try:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    raise RuntimeError("摄像头读取中断，请检查摄像头连接或占用状态")
-                frame = cv2.flip(frame, 1)
-                frame_count += 1
-                if frame_count % self.capture_profile.detect_every_frames != 0:
+            if self.low_performance and not self.show_window:
+                capture_thread = threading.Thread(target=self._capture_preview_loop, args=(cap,), daemon=True)
+                capture_thread.start()
+                last_analyzed_frame_index = 0
+                while True:
+                    time.sleep(self.capture_profile.detect_every_frames / max(1, self.capture_profile.fps))
+                    frame, latest_frame_index = self._read_latest_frame()
+                    if frame is None or latest_frame_index == last_analyzed_frame_index:
+                        continue
+                    last_analyzed_frame_index = latest_frame_index
+                    timestamp_ms = self._analyze_frame(frame, holistic, timestamp_ms)
+            else:
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        raise RuntimeError("摄像头读取中断，请检查摄像头连接或占用状态")
+                    frame = cv2.flip(frame, 1)
+                    frame_count += 1
+                    if frame_count % self.capture_profile.detect_every_frames != 0:
+                        self._write_preview_frame(frame, time.time())
+                        if self.show_window:
+                            cv2.imshow(window_name, frame)
+                            key = cv2.waitKey(1) & 0xFF
+                            if key == ord("q"):
+                                break
+                            if key == ord("s"):
+                                self.show_landmarks = not self.show_landmarks
+                        continue
+
+                    timestamp_ms = self._analyze_frame(frame, holistic, timestamp_ms)
                     self._write_preview_frame(frame, time.time())
                     if self.show_window:
                         cv2.imshow(window_name, frame)
@@ -628,94 +764,8 @@ class ConfidenceMonitor:
                             break
                         if key == ord("s"):
                             self.show_landmarks = not self.show_landmarks
-                    continue
-
-                rgb = np.ascontiguousarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                mp_image = mp_image_module.Image(image_format=mp_image_module.ImageFormat.SRGB, data=rgb)
-                timestamp_ms += max(1, int(1000 / max(1, self.capture_profile.fps))) * self.capture_profile.detect_every_frames
-                results = holistic.detect_for_video(mp_image, timestamp_ms)
-
-                face_landmarks = results.face_landmarks or []
-                pose_landmarks = results.pose_landmarks or []
-                left_hand = results.left_hand_landmarks or []
-                right_hand = results.right_hand_landmarks or []
-
-                has_face = len(face_landmarks) > 0
-                has_pose = len(pose_landmarks) > 0
-                has_hand = len(left_hand) > 0 or len(right_hand) > 0
-                has_person = has_face or has_pose or has_hand
-
-                now = time.time()
-                hand_landmarks = left_hand if left_hand else right_hand
-                should_refresh_scores = now - self.last_update_time >= self.feedback_interval
-
-                if not has_person:
-                    if self.no_person_start_time is None:
-                        self.no_person_start_time = now
-                    elif now - self.no_person_start_time >= self.no_person_duration:
-                        self.person_detected = False
-                        self.prev_hand_signature = None
-                        self.prev_pose_signature = None
-                        self.prev_face_signature = None
-                        self.gesture_ema = 0.6
-                        self.motion_ema = 0.0
-                        self.lower_bounds = self._refresh_lower_bounds()
-                        self.display_scores = DisplayScores(feedback="未检测到人体，请进入画面中央")
-                    if should_refresh_scores:
-                        self.last_update_time = now
-                else:
-                    self.no_person_start_time = None
-                    if not self.person_detected:
-                        self.lower_bounds = self._refresh_lower_bounds()
-                    self.person_detected = True
-
-                    gesture = self._gesture_smoothness(hand_landmarks, pose_landmarks)
-                    gesture_event = self._gesture_event(pose_landmarks, hand_landmarks) if has_person else ""
-                    if should_refresh_scores:
-                        self._update_scores(
-                            face_landmarks=face_landmarks,
-                            pose_landmarks=pose_landmarks,
-                            hand_landmarks=hand_landmarks,
-                            gesture_event=gesture_event,
-                            gesture_smoothness=gesture,
-                        )
-                        self.last_update_time = now
-                    else:
-                        self._update_body_motion(face_landmarks=face_landmarks, pose_landmarks=pose_landmarks)
-
-                raised_hand = bool(has_person and self._detect_raise_hand(pose_landmarks, hand_landmarks))
-                gesture_event = self._gesture_event(pose_landmarks, hand_landmarks) if has_person else ""
-                if should_refresh_scores:
-                    self._append_sample(
-                        has_person=has_person,
-                        has_face=has_face,
-                        has_pose=has_pose,
-                        has_hand=has_hand,
-                        raised_hand=raised_hand,
-                        gesture_event=gesture_event,
-                    )
-
-                if has_face:
-                    self._draw_face_box(frame, face_landmarks)
-
-                if self.show_landmarks and has_person:
-                    self._draw_selected_landmarks(
-                        frame,
-                        face_landmarks=face_landmarks,
-                        pose_landmarks=pose_landmarks,
-                        left_hand_landmarks=left_hand,
-                        right_hand_landmarks=right_hand,
-                    )
-
-                self._write_preview_frame(frame, now)
-                if self.show_window:
-                    cv2.imshow(window_name, frame)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q"):
-                        break
-                    if key == ord("s"):
-                        self.show_landmarks = not self.show_landmarks
         finally:
+            self._capture_stop.set()
             cap.release()
             if self.show_window:
                 cv2.destroyAllWindows()
